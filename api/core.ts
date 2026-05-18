@@ -49,6 +49,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleSearchCustomersByName(gsapi, req, res);
       case "searchCustomersById":
         return await handleSearchCustomersById(gsapi, req, res);
+      case "searchCustomersByPhone":
+        return await handleSearchCustomersByPhone(gsapi, req, res);
       default:
         return res.status(400).json({ error: `Unknown action: ${action}` });
     }
@@ -183,8 +185,7 @@ async function handleGetCustomer(gsapi: any, req: VercelRequest, res: VercelResp
       customerId: matchedRow[0] || "",
       name: matchedRow[1] || "",
       phone: matchedRow[2] || "",
-      firstVisit: matchedRow[3] || "",
-      lastVisit: matchedRow[4] || "",
+      phone2: matchedRow[3] || "",
       totalSpend: Number(matchedRow[5] || 0),
       totalBills: Number(matchedRow[6] || 0),
       points: Number(matchedRow[7] || 0),
@@ -232,6 +233,44 @@ async function handleSearchCustomersById(gsapi: any, req: VercelRequest, res: Ve
   if (!matched) {
     return res.status(200).json({ customer: null });
   }
+  return res.status(200).json({
+    customer: {
+      customerId: matched[0] || "",
+      name: matched[1] || "",
+      phone: matched[2] || "",
+      phone2: matched[3] || "",
+      totalSpend: Number(matched[5]) || 0,
+      totalBills: Number(matched[6]) || 0,
+      points: Number(matched[7]) || 0,
+    },
+  });
+}
+
+async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res: VercelResponse) {
+  const { phone } = req.query;
+  if (!phone || typeof phone !== "string") {
+    return res.status(400).json({ error: "Missing phone parameter" });
+  }
+
+  const response = await gsapi.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "Customers!A2:H",
+  });
+
+  const rows = response.data.values || [];
+  const phoneNormalized = normalizePhone(phone);
+  
+  // Search both phone (index 2) and phone2 (index 3)
+  const matched = rows.find((r: any) => {
+    const rowPhone = normalizePhone(r[2]?.toString() || "");
+    const rowPhone2 = normalizePhone(r[3]?.toString() || "");
+    return rowPhone === phoneNormalized || rowPhone2 === phoneNormalized;
+  });
+
+  if (!matched) {
+    return res.status(200).json({ customer: null });
+  }
+
   return res.status(200).json({
     customer: {
       customerId: matched[0] || "",

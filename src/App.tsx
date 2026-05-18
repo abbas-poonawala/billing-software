@@ -24,14 +24,14 @@ export default function App() {
   const [shades, setShades] = useState<string[]>([]);
   const [item, setItem] = useState("");
   const [shade, setShade] = useState("");
-  const [mode, setMode] = useState<"individual" | "box">("individual");
   const [qty, setQty] = useState(1);
-  const [price, setPrice] = useState(0);
-  const [cost, setCost] = useState(0);
+  const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
   const [warnedKey, setWarnedKey] = useState<string | null>(null);
   const [nextBillNo, setNextBillNo] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [phone, setPhone] = useState("");
+  const [phone2, setPhone2] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [pointsConfig, setPointsConfig] = useState<PointsConfig | null>(null);
@@ -59,7 +59,7 @@ export default function App() {
   const [customerSearchResults, setCustomerSearchResults] = useState<Customer[]>([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [printPreview, setPrintPreview] = useState(false);
-  const [courierCharges, setCourierCharges] = useState(0);
+  const [courierCharges, setCourierCharges] = useState("");
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   const [itemDropdownIndex, setItemDropdownIndex] = useState(-1);
   const [showShadeDropdown, setShowShadeDropdown] = useState(false);
@@ -75,9 +75,9 @@ export default function App() {
   const [originalBillDate, setOriginalBillDate] = useState("");
   const [originalBillTime, setOriginalBillTime] = useState("");
   const [originalRowIndexes, setOriginalRowIndexes] = useState<number[]>([]);
-  const [amountReceived, setAmountReceived] = useState(0);
+  const [amountReceived, setAmountReceived] = useState("");
   const [editingPriceRow, setEditingPriceRow] = useState<number | null>(null);
-  const [editingPriceValue, setEditingPriceValue] = useState(0);
+  const [editingPriceValue, setEditingPriceValue] = useState("");
   const [editShadeFilteredList, setEditShadeFilteredList] = useState<string[]>([]);
   const [editShadeDropdownIndex, setEditShadeDropdownIndex] = useState(-1);
 
@@ -135,9 +135,11 @@ export default function App() {
     setItems(applyTriosoftPricing(newItems));
   };
 
+  const courierChargesNum = Number(courierCharges) || 0;
+  const amountReceivedNum = Number(amountReceived) || 0;
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
-  const finalTotal = grandTotal + courierCharges;
-  const changeAmount = amountReceived > finalTotal ? amountReceived - finalTotal : 0;
+  const finalTotal = grandTotal + courierChargesNum;
+  const changeAmount = amountReceivedNum > finalTotal ? amountReceivedNum - finalTotal : 0;
 
   const validateRecoveredPrices = async (recoveredItems: any[]) => {
     const changes: string[] = [];
@@ -163,10 +165,10 @@ export default function App() {
   // auto-save draft
   useEffect(() => {
     if (items.length > 0) {
-      const draft = { items, customerName, phone, redeemPoints, courierCharges, customerType };
+      const draft = { items, customerName, phone, phone2, redeemPoints, courierCharges, customerType };
       localStorage.setItem("billDraft", JSON.stringify(draft));
     }
-  }, [items, customerName, phone, redeemPoints, courierCharges, customerType]);
+  }, [items, customerName, phone, phone2, redeemPoints, courierCharges, customerType]);
 
   useEffect(() => {
     if (toast) {
@@ -180,7 +182,7 @@ export default function App() {
     const draft = localStorage.getItem("billDraft");
     if (draft) {
       try {
-        const { items: draftItems, customerName: draftName, phone: draftPhone, redeemPoints: draftRedeem, courierCharges: draftCourier, customerType: draftType } = JSON.parse(draft);
+        const { items: draftItems, customerName: draftName, phone: draftPhone, phone2: draftPhone2, redeemPoints: draftRedeem, courierCharges: draftCourier, customerType: draftType } = JSON.parse(draft);
         if (draftItems?.length > 0) {
           const shouldRecover = window.confirm("You have an unsaved bill. Recover?");
           if (shouldRecover) {
@@ -190,8 +192,9 @@ export default function App() {
             });
             setCustomerName(draftName || "");
             setPhone(draftPhone || "");
+            setPhone2(draftPhone2 || "");
             setRedeemPoints(draftRedeem || false);
-            setCourierCharges(draftCourier || 0);
+            setCourierCharges(draftCourier ? String(draftCourier) : "");
             setCustomerType(draftType === "courier" ? "courier" : "walk-in");
             setToast({ message: "Bill recovered from draft", type: "success" });
           } else localStorage.removeItem("billDraft");
@@ -200,16 +203,16 @@ export default function App() {
     }
   }, []);
 
-  // Fetch price when mode or shade changes
+  // Fetch price when shade or item changes
   useEffect(() => {
     if (!item) return;
     (async () => {
-      const fetchedPrice = await fetchPriceByMode(item, shade);
+      const fetchedPrice = await fetchPrice(item, shade);
       if (fetchedPrice !== null && fetchedPrice > 0) {
-        setPrice(fetchedPrice);
+        setPrice(String(fetchedPrice));
       }
     })();
-  }, [mode, shade, item]);
+  }, [shade, item]);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => setToast({ message: msg, type });
 
@@ -287,11 +290,11 @@ export default function App() {
 
   const startEditPrice = (idx: number, currentPrice: number) => {
     setEditingPriceRow(idx);
-    setEditingPriceValue(currentPrice);
+    setEditingPriceValue(String(currentPrice));
   };
 
   const saveEditPrice = (idx: number) => {
-    const newPrice = editingPriceValue;
+    const newPrice = Number(editingPriceValue);
     if (isNaN(newPrice) || newPrice <= 0) {
       alert("Price must be > 0");
       return;
@@ -300,12 +303,12 @@ export default function App() {
     updated[idx] = recalcItem({ ...updated[idx], price: newPrice, priceOverridden: true });
     updateItems(updated);
     setEditingPriceRow(null);
-    setEditingPriceValue(0);
+    setEditingPriceValue("");
   };
 
   const cancelEditPrice = () => {
     setEditingPriceRow(null);
-    setEditingPriceValue(0);
+    setEditingPriceValue("");
   };
 
   const [billDate] = useState(() => new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }));
@@ -352,6 +355,7 @@ export default function App() {
         setCustomer(data.customer);
         setCustomerName(data.customer.name);
         setPhone(data.customer.phone);
+        setPhone2(data.customer.phone2 || "");
         setShowCustomerDropdown(false);
         showToast(`Customer found: ${data.customer.name}`, "success");
       } else { setCustomer(null); showToast("Customer ID not found", "error"); }
@@ -359,10 +363,28 @@ export default function App() {
     finally { setCustomerSearchLoading(false); }
   };
 
+  const searchCustomersByPhone = async (phoneVal: string) => {
+    if (phoneVal.trim().length < 10) { setCustomer(null); return; }
+    setCustomerSearchLoading(true);
+    try {
+      const res = await fetch(`/api/core?action=searchCustomersByPhone&phone=${encodeURIComponent(phoneVal.trim())}`);
+      const data = await res.json();
+      if (data.customer) {
+        setCustomer(data.customer);
+        setCustomerName(data.customer.name);
+        setPhone(data.customer.phone);
+        setPhone2(data.customer.phone2 || "");
+        showToast(`Customer found: ${data.customer.name}`, "success");
+      } else { setCustomer(null); }
+    } catch { setCustomer(null); }
+    finally { setCustomerSearchLoading(false); }
+  };
+
   const selectCustomerFromSearch = (cust: Customer) => {
     setCustomer(cust);
     setCustomerName(cust.name);
     setPhone(cust.phone);
+    setPhone2(cust.phone2 || "");
     setCustomerSearchResults([]);
     setShowCustomerDropdown(false);
     showToast(`Customer selected: ${cust.name}`, "success");
@@ -411,7 +433,7 @@ export default function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (!item) { setShades([]); setShade(""); setPrice(0); setCost(0); return; }
+    if (!item) { setShades([]); setShade(""); setPrice(""); setCost(""); return; }
     if (!allItems.includes(item)) { setShades([]); return; }
     if (shadeCache.current[item]) { setShades(shadeCache.current[item]); return; }
     fetch(`/api/core?action=getShades&item=${encodeURIComponent(item)}`)
@@ -431,15 +453,15 @@ export default function App() {
     if (!allItems.includes(item)) return;
     fetch(`/api/core?action=getCost&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`)
       .then(res => res.json())
-      .then(data => setCost(data.cost || 0))
-      .catch(() => setCost(0));
+      .then(data => setCost(String(data.cost || "")))
+      .catch(() => setCost(""));
   }, [item, shade, allItems]);
   useEffect(() => {
     if (!item || !shade) return;
     if (!allItems.includes(item) || !shades.includes(shade)) return;
     const key = `${item}__${shade}`;
     if (priceCache.current[key]) {
-      setPrice(priceCache.current[key].price);
+      setPrice(String(priceCache.current[key].price));
       const sq = priceCache.current[key].qty;
       if (sq >= 0 && sq < 2 && warnedKey !== `${item}-${shade}`) {
         window.alert("Low stock for this shade. Check sheet.");
@@ -453,13 +475,13 @@ export default function App() {
         const p = data.price || 0;
         const q = Number(data.qty ?? -1);
         priceCache.current[key] = { price: p, qty: q };
-        setPrice(p);
+        setPrice(String(p));
         if (q >= 0 && q < 2 && warnedKey !== `${item}-${shade}`) {
           window.alert("Low stock for this shade. Check sheet.");
           setWarnedKey(`${item}-${shade}`);
         }
       })
-      .catch(() => setPrice(0));
+      .catch(() => setPrice(""));
   }, [item, shade, shades, warnedKey, allItems]);
 
   const isStandard = shades.length === 1 && shades[0].toLowerCase() === "standard";
@@ -495,7 +517,7 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || "Product not found");
       setItem(data.item);
       setShade(data.shade);
-      setPrice(data.price);
+      setPrice(String(data.price || ""));
       setBarcode("");
       addItem(true);
     } catch (err: any) {
@@ -555,9 +577,11 @@ export default function App() {
   const addItem = async (fromBarcode = false) => {
     if (!item?.trim()) { alert("Enter item name"); return; }
     if (qty <= 0) { alert("Quantity must be >0"); return; }
-    if (price === undefined || price === null || price < 0) { alert("Enter valid price"); return; }
-    if (price === 0) { alert("Price cannot be 0. Use Misc if free."); return; }
-    if (cost === undefined || cost === null || cost < 0) { alert("Enter valid cost"); return; }
+    const priceNum = Number(price);
+    if (isNaN(priceNum) || priceNum < 0) { alert("Enter valid price"); return; }
+    if (priceNum === 0) { alert("Price cannot be 0. Use Misc if free."); return; }
+    const costNum = Number(cost);
+    if (isNaN(costNum) || costNum < 0) { alert("Enter valid cost"); return; }
 
     const itemExists = allItems.some(i => i.toLowerCase() === item.toLowerCase());
     let shadeIsValid = false, isMisc = false;
@@ -589,17 +613,17 @@ export default function App() {
     if (itemExists && !isMisc && !finalShade) { alert("Select a shade"); return; }
 
     const newItem = recalcItem({
-      item, shade: finalShade, qty, cost: cost || 0, price, originalPrice: price, misc: isMisc,
+      item, shade: finalShade, qty, cost: costNum, price: priceNum, originalPrice: priceNum, misc: isMisc,
       total: 0, profit: 0, priceOverridden: false,
     });
     updateItems([...items, newItem]);
 
     if (fromBarcode) {
-      setItem(""); setShade(""); setQty(1); setPrice(0); setCost(0); setMode("individual");
+      setItem(""); setShade(""); setQty(1); setPrice(""); setCost("");
       setShowItemDropdown(false); setShowShadeDropdown(false);
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     } else {
-      setItem(""); setShade(""); setQty(1); setPrice(0); setCost(0); setMode("individual");
+      setItem(""); setShade(""); setQty(1); setPrice(""); setCost("");
       setTimeout(() => itemRef.current?.focus(), 50);
     }
   };
@@ -611,43 +635,12 @@ export default function App() {
     updateItems(updated);
   };
 
-  const fetchPriceByMode = async (itemName: string, selectedShade?: string): Promise<number | null> => {
+  const fetchPrice = async (itemName: string, selectedShade?: string): Promise<number | null> => {
     try {
-      const itemLower = itemName.toLowerCase();
-      if (itemLower === "816") {
-        if (mode === "individual") {
-          // 816 individual mode: fetch from normal sheet
-          if (!selectedShade) return null;
-          const res = await fetch(`/api/core?action=getPrice&item=${encodeURIComponent(itemName)}&shade=${encodeURIComponent(selectedShade)}`);
-          const data = await res.json();
-          return data.price || null;
-        } else {
-          // 816 box mode: fetch from Box Price sheet
-          const res = await fetch(`/api/core?action=getBoxPrice&item=${encodeURIComponent(itemName)}&mode=${mode}`);
-          const data = await res.json();
-          return data.price || null;
-        }
-      } else if (itemLower === "baby soft") {
-        if (mode === "box") {
-          // Baby Soft box/bottle mode: fetch from normal sheet
-          if (!selectedShade) return null;
-          const res = await fetch(`/api/core?action=getPrice&item=${encodeURIComponent(itemName)}&shade=${encodeURIComponent(selectedShade)}`);
-          const data = await res.json();
-          return data.price || null;
-        } else {
-          // Baby Soft individual yarn ball mode: fetch from Box Price sheet (individual column)
-          const res = await fetch(`/api/core?action=getBoxPrice&item=${encodeURIComponent(itemName)}&mode=individual`);
-          const data = await res.json();
-          return data.price || null;
-        }
-      } else {
-        // For other items (Coats): normal sheet with shade, or shade + " Box" if mode is box
-        const shadeToUse = mode === "box" && selectedShade ? `${selectedShade} Box` : selectedShade;
-        if (!shadeToUse) return null;
-        const res = await fetch(`/api/core?action=getPrice&item=${encodeURIComponent(itemName)}&shade=${encodeURIComponent(shadeToUse)}`);
-        const data = await res.json();
-        return data.price || null;
-      }
+      if (!selectedShade) return null;
+      const res = await fetch(`/api/core?action=getPrice&item=${encodeURIComponent(itemName)}&shade=${encodeURIComponent(selectedShade)}`);
+      const data = await res.json();
+      return data.price || null;
     } catch (err) {
       console.error(err);
       return null;
@@ -709,7 +702,8 @@ export default function App() {
   const saveBill = async () => {
     if (items.length === 0 || saving) return false;
     if (!isPhoneValid) { alert("Enter 10-digit phone (with or without +91)"); return false; }
-    if (customerType === "courier" && courierCharges <= 0) {
+    const courierChargesNum = Number(courierCharges) || 0;
+    if (customerType === "courier" && courierChargesNum <= 0) {
       alert("Courier charges required for courier orders");
       return false;
     }
@@ -718,10 +712,10 @@ export default function App() {
     try {
       const url = editingBillNo ? "/api/bill?action=edit" : "/api/bill";
       const body: any = {
-        items: items.map(i => ({ ...i, total: i.qty * i.price, profit: i.profit, mode })),
+        items: items.map(i => ({ ...i, total: i.qty * i.price, profit: i.profit })),
         finalTotal,
-        courierCharges: customerType === "courier" ? courierCharges : 0,
-        customer: { name: customerName, phone: phoneWithCountryCode(), type: customerType, courier: customerType === "courier" },
+        courierCharges: customerType === "courier" ? courierChargesNum : 0,
+        customer: { name: customerName, phone: phoneWithCountryCode(), phone2, type: customerType, courier: customerType === "courier" },
         earnRate: pointsConfig?.earnRate ?? 0,
         redeemRate: pointsConfig?.redeemRate ?? 0,
       };
@@ -746,9 +740,10 @@ export default function App() {
       setCustomer(null);
       setCustomerName("");
       setPhone("");
+      setPhone2("");
       setRedeemPoints(false);
-      setCourierCharges(0);
-      setAmountReceived(0);
+      setCourierCharges("");
+      setAmountReceived("");
       setEditingBillNo(null);
       setOriginalBillDate("");
       setOriginalBillTime("");
@@ -798,7 +793,8 @@ export default function App() {
   const saveBillAndSend = async () => {
     if (items.length === 0 || saving) return;
     if (!isPhoneValid) { alert("Enter valid phone"); return; }
-    if (customerType === "courier" && courierCharges <= 0) {
+    const courierChargesNum = Number(courierCharges) || 0;
+    if (customerType === "courier" && courierChargesNum <= 0) {
       alert("Courier charges required for courier orders");
       return;
     }
@@ -880,8 +876,9 @@ export default function App() {
     updateItems(loadedItems);
     setCustomerName(bill.customerName);
     setPhone(bill.customerPhone);
-    setCourierCharges(bill.courierCharges || 0);
-    setCustomerType(bill.courierCharges > 0 ? "courier" : "walk-in");
+    setPhone2(bill.customerPhone2 || "");
+    setCourierCharges(bill.courierCharges ? String(bill.courierCharges) : "");
+    setCustomerType(Number(bill.courierCharges) > 0 ? "courier" : "walk-in");
     setEditingBillNo(bill.billNo);
     setOriginalBillDate(bill.date);
     setOriginalBillTime(bill.time);
@@ -1029,12 +1026,8 @@ button:active:not(:disabled) { transform: translateY(0); }
             </div>}
             {!needsShadeDropdown && shadeSuggestion && shade !== shadeSuggestion && <span style={styles.suggestion}>{shadeSuggestion}</span>}
           </div>}
-          <div style={{ display: "flex", gap: "4px" }}>
-            <button onClick={() => setMode("individual")} style={{ ...styles.button, background: mode === "individual" ? "#10b981" : "#e5e7eb", color: mode === "individual" ? "#fff" : "#000", padding: "6px 12px", fontSize: "12px", flex: 1 }}>Individual</button>
-            <button onClick={() => setMode("box")} style={{ ...styles.button, background: mode === "box" ? "#10b981" : "#e5e7eb", color: mode === "box" ? "#fff" : "#000", padding: "6px 12px", fontSize: "12px", flex: 1 }}>Box</button>
-          </div>
           <input ref={qtyRef} type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} placeholder="Qty" style={{ ...styles.smallInput, maxWidth: 80 }} />
-          <input ref={priceRef} type="text" inputMode="decimal" value={price} onChange={e => setPrice(Number(e.target.value) || 0)} placeholder="Price" style={{ ...styles.smallInput, maxWidth: 100 }} />
+          <input ref={priceRef} type="text" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} placeholder="Price" style={{ ...styles.smallInput, maxWidth: 100 }} />
           <button style={styles.button} onClick={() => addItem(false)}>Add</button>
         </div>
       </div>
@@ -1184,7 +1177,7 @@ button:active:not(:disabled) { transform: translateY(0); }
                       type="text"
                       inputMode="decimal"
                       value={editingPriceValue}
-                      onChange={(e) => setEditingPriceValue(Number(e.target.value))}
+                      onChange={(e) => setEditingPriceValue(e.target.value)}
                       onBlur={() => saveEditPrice(idx)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") saveEditPrice(idx);
@@ -1234,7 +1227,7 @@ button:active:not(:disabled) { transform: translateY(0); }
         </table>
         <hr style={styles.divider} />
         <div style={styles.totalsBlock}>
-          {courierCharges > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>Courier Charges</span><span>+ ₹{formatPrice(courierCharges)}</span></div>}
+          {courierChargesNum > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>Courier Charges</span><span>+ ₹{formatPrice(courierChargesNum)}</span></div>}
           <div style={{ ...styles.grandTotalRow, display:"flex", justifyContent:"space-between" }}><span>Grand Total</span><span>₹{formatPrice(finalTotal)}</span></div>
         </div>
         <p style={styles.thankYou}>Thank you for your purchase!</p>
@@ -1246,8 +1239,8 @@ button:active:not(:disabled) { transform: translateY(0); }
           type="text"
           inputMode="decimal"
           value={amountReceived}
-          onChange={(e) => setAmountReceived(Number(e.target.value) || 0)}
-          placeholder="0"
+          onChange={(e) => setAmountReceived(e.target.value)}
+          placeholder=""
           style={{
             width: "100px",
             padding: "6px 10px",
@@ -1268,8 +1261,8 @@ button:active:not(:disabled) { transform: translateY(0); }
 
       <div className="no-print" style={styles.customerCard}>
         <div style={{ display:"flex", gap:"8px", marginBottom:"12px" }}>
-          <button onClick={()=>{ setCustomerType("walk-in"); setCustomerName(""); setPhone(""); setCustomer(null); setCourierCharges(0); setAmountReceived(0); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="walk-in"?700:500, backgroundColor:customerType==="walk-in"?"#10b981":"#e5e7eb", color:customerType==="walk-in"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>👤 Walk-in</button>
-          <button onClick={()=>{ setCustomerType("courier"); setCustomerName(""); setPhone(""); setCustomer(null); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="courier"?700:500, backgroundColor:customerType==="courier"?"#3b82f6":"#e5e7eb", color:customerType==="courier"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>🚚 Courier</button>
+          <button onClick={()=>{ setCustomerType("walk-in"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); setCourierCharges(""); setAmountReceived(""); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="walk-in"?700:500, backgroundColor:customerType==="walk-in"?"#10b981":"#e5e7eb", color:customerType==="walk-in"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>👤 Walk-in</button>
+          <button onClick={()=>{ setCustomerType("courier"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="courier"?700:500, backgroundColor:customerType==="courier"?"#3b82f6":"#e5e7eb", color:customerType==="courier"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>🚚 Courier</button>
         </div>
         <div style={{ display:"flex", gap:"12px", flexWrap:"wrap", alignItems:"center" }}>
           <div style={{ position:"relative", flex:1 }}>
@@ -1324,7 +1317,8 @@ button:active:not(:disabled) { transform: translateY(0); }
               </div>)}
             </div>}
           </div>
-          <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone (optional)" style={styles.smallInput} />
+          <input value={phone} onChange={e=>{ setPhone(e.target.value); searchCustomersByPhone(e.target.value); }} placeholder="Phone 1" style={styles.smallInput} />
+          <input value={phone2} onChange={e=>{ setPhone2(e.target.value); if(e.target.value.trim().length >= 10) searchCustomersByPhone(e.target.value); }} placeholder="Phone 2 (optional)" style={styles.smallInput} />
           <input value={customer?.customerId||""} onChange={e=>{ if(e.target.value.trim()) searchCustomersById(e.target.value); }} placeholder="Or search by ID..." style={styles.smallInput} />
           {customerSearchLoading && <span>🔍</span>}
         </div>
@@ -1333,7 +1327,7 @@ button:active:not(:disabled) { transform: translateY(0); }
           {pointsConfig && customer.points >= pointsConfig.minRedeem && <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}><input type="checkbox" checked={redeemPoints} onChange={e=>setRedeemPoints(e.target.checked)} /> Redeem {customer.points} points (₹{formatPrice(Math.floor(customer.points*pointsConfig.redeemRate))} off)</label>}
           {pointsConfig && customer.points < pointsConfig.minRedeem && <span style={{ fontSize:12, color:"#aaa" }}>{pointsConfig.minRedeem - customer.points} more points needed</span>}
         </div>}
-        {customerType === "courier" && <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:"8px" }}><span style={{ fontSize:"13px", fontWeight:600, minWidth:"120px" }}>Courier Charges:</span><input type="text" inputMode="decimal" value={courierCharges} onChange={e=>setCourierCharges(Number(e.target.value)||0)} placeholder="0" style={{ width:"100px", padding:"8px10px", fontSize:"13px", border:"1px solid #cbd5e1", borderRadius:"0px", outline:"none", boxSizing:"border-box" }} /></div>}
+        {customerType === "courier" && <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:"8px" }}><span style={{ fontSize:"13px", fontWeight:600, minWidth:"120px" }}>Courier Charges:</span><input type="text" inputMode="decimal" value={courierCharges} onChange={e=>setCourierCharges(e.target.value)} placeholder="" style={{ width:"100px", padding:"8px10px", fontSize:"13px", border:"1px solid #cbd5e1", borderRadius:"0px", outline:"none", boxSizing:"border-box" }} /></div>}
         {customerType === "walk-in" && <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:"8px", color:"#aaa" }}><span style={{ fontSize:"12px" }}>Walk-in mode: No courier charges</span></div>}
         {!customer && customerName.trim().length>=2 && !customerSearchLoading && <div style={{ fontSize:13, color:"#888", marginTop:6, fontWeight:500 }}>🆕 New customer, will be registered on save.</div>}
       </div>
@@ -1349,8 +1343,11 @@ button:active:not(:disabled) { transform: translateY(0); }
         <button style={{ ...styles.printBtn, background:"#0a6ed1", opacity: (savingProgress || items.length===0 || !isPhoneValid) ? 0.6 : 1 }} onClick={saveBillAndSend} disabled={savingProgress || items.length===0 || !isPhoneValid}>{savingProgress ? "⏳ Saving..." : "💾📲 Save & Send"}</button>
       </div>
 
-      {showBillRetrieval && <div style={styles.customerCard}>
-        <h3 style={{ margin:"0 0 12px 0", fontSize:"14px", fontWeight:700 }}>🔍 Retrieve Previous Bill</h3>
+      {showBillRetrieval && <div className="no-print" style={styles.customerCard}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+          <h3 style={{ margin:0, fontSize:"14px", fontWeight:700 }}>🔍 Retrieve Previous Bill</h3>
+          <button onClick={()=>setShowBillRetrieval(false)} style={{ background:"none", border:"none", fontSize:"20px", cursor:"pointer", color:"#666" }}>✕</button>
+        </div>
         <div style={{ display:"flex", gap:"8px" }}>
           <input type="number" min="1" value={billSearchNo} onChange={e=>setBillSearchNo(e.target.value)} placeholder="Enter bill number..." style={{ flex:1, padding:"8px10px", fontSize:"13px", border:"1px solid #cbd5e1", borderRadius:"4px", outline:"none" }} />
           <button onClick={()=>retrieveBillByNo(Number(billSearchNo))} disabled={billRetrievalLoading} style={{ padding:"8px12px", fontSize:"13px", fontWeight:600, backgroundColor:billRetrievalLoading?"#ccc":"#8b5cf6", color:"#fff", border:"none", borderRadius:"4px", cursor:billRetrievalLoading?"not-allowed":"pointer" }}>{billRetrievalLoading ? "⏳" : "Search"}</button>

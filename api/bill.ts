@@ -38,15 +38,8 @@ function escapeSheetName(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
-function getStockDeductionMultiplier(item: string, mode: string): number {
-  const itemLower = item.toLowerCase();
-  if (itemLower === "816") {
-    return mode === "box" ? 4 : 1; // 816 box = 4 balls, individual = 1
-  }
-  if (itemLower === "baby soft") {
-    return mode === "individual" ? 0 : 1; // baby soft individual = no deduction, box = 1
-  }
-  return 1; // default: deduct as qty
+function getStockDeductionMultiplier(): number {
+  return 1; // all items deduct qty as-is (no mode-based multiplier)
 }
 
 async function getPacketSize(gsapi: any, article: string): Promise<number> {
@@ -295,7 +288,6 @@ async function validateAllItemsStock(
 interface StockDeductionOp {
   item: string;
   shade: string;
-  mode: string;
   storeRowIndex: number;
   storeStock: number;
   loftRowIndex: number;
@@ -313,8 +305,8 @@ async function deductAllItemsStock(
   const applied = new Map<string, any>();
 
   for (const op of operations) {
-    const { item, shade, mode, storeRowIndex, storeStock, loftRowIndex, loftIndividuals, loftPackets, packetSize, qty, timestamp } = op;
-    const multiplier = getStockDeductionMultiplier(item, mode);
+    const { item, shade, storeRowIndex, storeStock, loftRowIndex, loftIndividuals, loftPackets, packetSize, qty, timestamp } = op;
+    const multiplier = getStockDeductionMultiplier();
     const deductionQty = qty * multiplier;
 
     try {
@@ -630,11 +622,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const ops = validations
           .filter(v => !items.find(i => i.item === v.item && i.shade === v.shade)?.misc)
           .map(v => {
-            const modeFromItem = items.find(i => i.item === v.item && i.shade === v.shade)?.mode || "individual";
             return {
               item: v.item,
               shade: v.shade,
-              mode: modeFromItem,
               storeRowIndex: v.storeRowIndex,
               storeStock: v.storeStock,
               loftRowIndex: v.loftRowIndex,
@@ -679,7 +669,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   newCustomerId,
                   customer.name || "",
                   phoneNormalized,
-                  "",
+                  normalizePhone(customer.phone2 || ""),
                   originalDate,
                   originalDate,
                   finalTotal,
@@ -702,6 +692,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 range: `Customers!B${updateRow}`,
                 valueInputOption: "USER_ENTERED",
                 requestBody: { values: [[customer.name]] },
+              });
+            }
+            const existingPhone2 = normalizePhone(existing[3]?.toString() || "");
+            const newPhone2 = normalizePhone(customer.phone2 || "");
+            if (newPhone2 && newPhone2 !== existingPhone2) {
+              await gsapi.spreadsheets.values.update({
+                spreadsheetId: STORE_SHEET_ID,
+                range: `Customers!D${updateRow}`,
+                valueInputOption: "USER_ENTERED",
+                requestBody: { values: [[newPhone2]] },
               });
             }
             await gsapi.spreadsheets.values.update({
@@ -822,11 +822,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const ops = validations
         .filter(v => !items.find(i => i.item === v.item && i.shade === v.shade)?.misc)
         .map(v => {
-          const modeFromItem = items.find(i => i.item === v.item && i.shade === v.shade)?.mode || "individual";
           return {
             item: v.item,
             shade: v.shade,
-            mode: modeFromItem,
             storeRowIndex: v.storeRowIndex,
             storeStock: v.storeStock,
             loftRowIndex: v.loftRowIndex,
@@ -892,7 +890,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 customerId,
                 customer.name || "",
                 phoneNormalized,
-                "",
+                normalizePhone(customer.phone2 || ""),
                 date,
                 date,
                 finalTotal,
@@ -915,6 +913,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               range: `Customers!B${updateRow}`,
               valueInputOption: "USER_ENTERED",
               requestBody: { values: [[customer.name]] },
+            });
+          }
+          const existingPhone2 = normalizePhone(existing[3]?.toString() || "");
+          const newPhone2 = normalizePhone(customer.phone2 || "");
+          if (newPhone2 && newPhone2 !== existingPhone2) {
+            await gsapi.spreadsheets.values.update({
+              spreadsheetId: STORE_SHEET_ID,
+              range: `Customers!D${updateRow}`,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[newPhone2]] },
             });
           }
           await gsapi.spreadsheets.values.update({

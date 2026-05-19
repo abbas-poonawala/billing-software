@@ -1227,7 +1227,7 @@ button:active:not(:disabled) { transform: translateY(0); }
         </table>
         <hr style={styles.divider} />
         <div style={styles.totalsBlock}>
-          {courierChargesNum > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>Courier Charges</span><span>+ ₹{formatPrice(courierChargesNum)}</span></div>}
+          {courierChargesNum > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>Handling Charges</span><span>+ ₹{formatPrice(courierChargesNum)}</span></div>}
           <div style={{ ...styles.grandTotalRow, display:"flex", justifyContent:"space-between" }}><span>Grand Total</span><span>₹{formatPrice(finalTotal)}</span></div>
         </div>
         <p style={styles.thankYou}>Thank you for your purchase!</p>

@@ -10,6 +10,59 @@ const auth = new google.auth.GoogleAuth({
 const SPREADSHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
 
+// Simple in-memory cache for expensive lookups
+const priceCache = new Map<string, { price: number; qty: number; ts: number }>();
+const shadesCache = new Map<string, { shades: string[]; ts: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 min cache
+
+function normalizeShade(shade: string): string {
+  return shade.toString().trim().toLowerCase();
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const aLen = a.length, bLen = b.length;
+  const matrix: number[][] = [];
+  for (let i = 0; i <= bLen; i++) matrix[i] = [i];
+  for (let j = 0; j <= aLen; j++) matrix[0][j] = j;
+  for (let i = 1; i <= bLen; i++) {
+    for (let j = 1; j <= aLen; j++) {
+      matrix[i][j] = a[j - 1] === b[i - 1]
+        ? matrix[i - 1][j - 1]
+        : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+    }
+  }
+  return matrix[bLen][aLen];
+}
+
+function findBestShadeMatch(target: string, rows: any[]): any {
+  // Step 1: exact match
+  let match = rows.find((r: any) => normalizeShade(r[0] || "") === target);
+  if (match) return { row: match, method: "exact" };
+
+  // Step 2: startsWith (row starts with target)
+  match = rows.find((r: any) => normalizeShade(r[0] || "").startsWith(target));
+  if (match) return { row: match, method: "startsWith" };
+
+  // Step 3: reverse startsWith (target starts with row)
+  match = rows.find((r: any) => target.startsWith(normalizeShade(r[0] || "")));
+  if (match) return { row: match, method: "reverseStarts" };
+
+  // Step 4: fuzzy matching with Levenshtein distance
+  let bestMatch = null;
+  let bestDistance = Math.max(3, Math.ceil(target.length * 0.3)); // allow 30% difference
+  for (const row of rows) {
+    const rowShade = normalizeShade(row[0] || "");
+    const distance = levenshteinDistance(target, rowShade);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestMatch = row;
+    }
+  }
+  if (bestMatch) return { row: bestMatch, method: "fuzzy" };
+
+  return null;
+}
+
 function normalizePhone(phone: string): string {
   const input = phone.toString().trim();
   if (input.startsWith("+")) return input; // keep international format
@@ -75,12 +128,40 @@ async function handleGetShades(gsapi: any, req: VercelRequest, res: VercelRespon
     return res.status(400).json({ error: "Missing item parameter" });
   }
 
-  const response = await gsapi.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${item.replace(/'/g, "''")}'!B2:B`,
-  });
-  const shades = response.data.values?.flatMap((v: any) => v) || [];
-  return res.status(200).json({ shades });
+  const cacheKey = `shades:${item}`;
+  const cached = shadesCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return res.status(200).json({ shades: cached.shades });
+  }
+
+  // Try primary sheet first
+  try {
+    const response = await gsapi.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${item.replace(/'/g, "''")}'!B2:B`,
+    });
+    const shades = response.data.values?.flatMap((v: any) => v) || [];
+    if (shades.length > 0) {
+      shadesCache.set(cacheKey, { shades, ts: Date.now() });
+      return res.status(200).json({ shades });
+    }
+  } catch (err: any) {
+    console.log(`Primary sheet lookup failed for item "${item}", trying LOFT`);
+  }
+
+  // Fallback to LOFT sheet if primary sheet doesn't exist or is empty
+  try {
+    const loftResponse = await gsapi.spreadsheets.values.get({
+      spreadsheetId: LOFT_SHEET_ID,
+      range: `'${item.replace(/'/g, "''")}'!B2:B`,
+    });
+    const shades = loftResponse.data.values?.flatMap((v: any) => v) || [];
+    shadesCache.set(cacheKey, { shades, ts: Date.now() });
+    return res.status(200).json({ shades });
+  } catch (err: any) {
+    console.log(`LOFT sheet lookup also failed for item "${item}"`);
+    return res.status(200).json({ shades: [] });
+  }
 }
 
 async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelResponse) {
@@ -89,38 +170,55 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     return res.status(400).json({ error: "Missing item or shade parameter" });
   }
 
-  const response = await gsapi.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${item.replace(/'/g, "''")}'!B2:D`,
-  });
-
-  const rows = response.data.values || [];
-  const target = shade.toString().trim().toLowerCase();
-
-  let matchedRow = rows.find((r: any) =>
-    r[0]?.toString().trim().toLowerCase() === target
-  );
-  if (!matchedRow) {
-    matchedRow = rows.find((r: any) =>
-      r[0]?.toString().trim().toLowerCase().startsWith(target)
-    );
+  const target = normalizeShade(shade);
+  const cacheKey = `price:${item}:${shade}`;
+  const cached = priceCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return res.status(200).json({ price: cached.price, qty: cached.qty });
   }
-  if (!matchedRow) {
-    matchedRow = rows.find((r: any) => {
-      const rowShade = r[0]?.toString().trim().toLowerCase();
-      return target.startsWith(rowShade);
+
+  // Try primary sheet first
+  try {
+    const response = await gsapi.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${item.replace(/'/g, "''")}'!B2:D`,
     });
-  }
-  if (!matchedRow) {
-    matchedRow = rows.find((r: any) =>
-      r[0]?.toString().trim().toLowerCase().includes(target) ||
-      target.includes(r[0]?.toString().trim().toLowerCase())
-    );
+    const rows = response.data.values || [];
+    if (rows.length > 0) {
+      const match = findBestShadeMatch(target, rows);
+      if (match) {
+        const stock = match.row[1] ? Number(match.row[1]) : 0;
+        const price = match.row[2] ? Number(match.row[2]) : 0;
+        priceCache.set(cacheKey, { price, qty: stock, ts: Date.now() });
+        return res.status(200).json({ price, qty: stock, method: match.method });
+      }
+    }
+  } catch (err: any) {
+    console.log(`Primary sheet lookup failed for item "${item}", shade "${shade}", trying LOFT`);
   }
 
-  const stock = matchedRow && matchedRow[1] ? Number(matchedRow[1]) : 0;
-  const price = matchedRow && matchedRow[2] ? Number(matchedRow[2]) : 0;
-  return res.status(200).json({ price, qty: stock });
+  // Fallback to LOFT sheet if no match found in primary or primary sheet doesn't exist
+  try {
+    const loftResponse = await gsapi.spreadsheets.values.get({
+      spreadsheetId: LOFT_SHEET_ID,
+      range: `'${item.replace(/'/g, "''")}'!B2:D`,
+    });
+    const rows = loftResponse.data.values || [];
+    if (rows.length > 0) {
+      const match = findBestShadeMatch(target, rows);
+      if (match) {
+        const stock = match.row[1] ? Number(match.row[1]) : 0;
+        const price = match.row[2] ? Number(match.row[2]) : 0;
+        priceCache.set(cacheKey, { price, qty: stock, ts: Date.now() });
+        return res.status(200).json({ price, qty: stock, method: `loft-${match.method}` });
+      }
+    }
+  } catch (err: any) {
+    console.log(`LOFT sheet lookup also failed for item "${item}"`);
+  }
+
+  // No match found in either sheet - return 0
+  return res.status(200).json({ price: 0, qty: 0, method: "notfound" });
 }
 
 async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse) {
@@ -129,33 +227,73 @@ async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse
     return res.status(400).json({ error: "Missing item parameter" });
   }
 
-  const normalizedItem = item.toString().trim().toLowerCase();
-  const normalizedShade = shade ? shade.toString().trim().toLowerCase() : "";
+  const normalizedItem = normalizeShade(item);
+  const normalizedShade = shade && typeof shade === "string" ? normalizeShade(shade) : "";
 
-  const response = await gsapi.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: "Profit!A2:C",
-  });
-
-  const rows = response.data.values || [];
-
-  // exact match first
-  let matchedRow = rows.find((r: any) => {
-    const rowItem = r[0]?.toString().trim().toLowerCase();
-    const rowShade = r[1]?.toString().trim().toLowerCase();
-    return rowItem === normalizedItem && rowShade === normalizedShade;
-  });
-  
-  // fallback to item only
-  if (!matchedRow) {
-    matchedRow = rows.find((r: any) => {
-      const rowItem = r[0]?.toString().trim().toLowerCase();
-      return rowItem === normalizedItem;
+  // Try primary sheet first
+  try {
+    const response = await gsapi.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "Profit!A2:C",
     });
+
+    const rows = response.data.values || [];
+
+    // exact match first
+    let matchedRow = rows.find((r: any) => {
+      const rowItem = normalizeShade(r[0] || "");
+      const rowShade = normalizeShade(r[1] || "");
+      return rowItem === normalizedItem && rowShade === normalizedShade;
+    });
+    
+    // fallback to item only
+    if (!matchedRow) {
+      matchedRow = rows.find((r: any) => {
+        const rowItem = normalizeShade(r[0] || "");
+        return rowItem === normalizedItem;
+      });
+    }
+
+    if (matchedRow) {
+      const cost = matchedRow[2] ? Number(matchedRow[2]) : 0;
+      return res.status(200).json({ cost });
+    }
+  } catch (err: any) {
+    console.log(`Primary Profit sheet lookup failed for item "${item}"`);
   }
 
-  const cost = matchedRow && matchedRow[2] ? Number(matchedRow[2]) : 0;
-  return res.status(200).json({ cost });
+  // LOFT fallback - try to find in LOFT sheet if configured
+  if (LOFT_SHEET_ID) {
+    try {
+      const loftResponse = await gsapi.spreadsheets.values.get({
+        spreadsheetId: LOFT_SHEET_ID,
+        range: "Profit!A2:C",
+      });
+
+      const rows = loftResponse.data.values || [];
+      let matchedRow = rows.find((r: any) => {
+        const rowItem = normalizeShade(r[0] || "");
+        const rowShade = normalizeShade(r[1] || "");
+        return rowItem === normalizedItem && rowShade === normalizedShade;
+      });
+      
+      if (!matchedRow) {
+        matchedRow = rows.find((r: any) => {
+          const rowItem = normalizeShade(r[0] || "");
+          return rowItem === normalizedItem;
+        });
+      }
+
+      if (matchedRow) {
+        const cost = matchedRow[2] ? Number(matchedRow[2]) : 0;
+        return res.status(200).json({ cost });
+      }
+    } catch (err: any) {
+      console.log(`LOFT Profit sheet lookup also failed`);
+    }
+  }
+
+  return res.status(200).json({ cost: 0 });
 }
 
 async function handleGetCustomer(gsapi: any, req: VercelRequest, res: VercelResponse) {

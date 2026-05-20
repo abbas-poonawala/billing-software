@@ -843,7 +843,8 @@ export default function App() {
         anchor.click();
       }
     } catch (err: any) {
-      alert(err.message);
+      const errMsg = err.message || "Unknown error";
+      alert(errMsg);
     } finally {
       setRestockLoading(false);
     }

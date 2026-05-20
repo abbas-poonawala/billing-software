@@ -156,21 +156,43 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
     });
     const allSheets = (sheetMeta.data.sheets || []).map(s => s.properties?.title || "");
 
-    const skipTabs = ["bill", "registry", "profit", "discount", "discounts", "customers", "pointslog", "pointsconfig", "restock requests", "loft fallback log", "dashboard"];
+    const skipTabs = ["bill", "registry", "profit", "discount", "discounts", "customers", "pointslog", "pointsconfig", "restock requests", "loft fallback log", "dashboard", "alternate shades", "settings"];
 
     const itemSheets: string[] = [];
     for (const sheetName of allSheets) {
       if (skipTabs.includes(sheetName.toLowerCase())) continue;
       try {
+        // Try to read first row to check for headers
         const headers = await gsapi.spreadsheets.values.get({
           spreadsheetId: STORE_SHEET_ID,
           range: `${escapeSheetName(sheetName)}!1:1`,
         });
         const headerRow = headers.data.values?.[0] || [];
+        
+        // Check if sheet has "Shade" header (case insensitive) in any column
         const hasShade = headerRow.some(h => h?.toString().trim().toLowerCase() === "shade");
-        if (hasShade) itemSheets.push(sheetName);
+        
+        if (hasShade) {
+          itemSheets.push(sheetName);
+        } else {
+          // Fallback: if first row looks like data (not headers), assume it's a valid item sheet
+          // Check if B2:C has any data to determine if sheet structure is valid
+          try {
+            const dataCheck = await gsapi.spreadsheets.values.get({
+              spreadsheetId: STORE_SHEET_ID,
+              range: `${escapeSheetName(sheetName)}!B2:C2`,
+            });
+            const firstDataRow = dataCheck.data.values?.[0] || [];
+            if (firstDataRow.length > 0 || headerRow.length > 0) {
+              // Sheet has structure, assume it's a valid item sheet even without explicit "Shade" header
+              itemSheets.push(sheetName);
+            }
+          } catch (innerErr) {
+            // Can't read data, skip sheet
+          }
+        }
       } catch (err) {
-        console.warn(`Could not read headers for sheet ${sheetName}:`, err);
+        console.warn(`Could not analyze sheet ${sheetName}:`, err);
       }
     }
 
@@ -180,7 +202,11 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
     } else {
       const matchedItem = itemSheets.find(tab => tab.toLowerCase() === item.toLowerCase());
       if (!matchedItem) {
-        return res.status(404).json({ error: `Item sheet '${item}' not found or is not a valid item sheet.` });
+        const availableItems = itemSheets.join(", ") || "none found";
+        return res.status(404).json({ 
+          error: `Item sheet '${item}' not found. Available items: ${availableItems}`,
+          availableItems: itemSheets
+        });
       }
       itemsToProcess = [matchedItem];
     }

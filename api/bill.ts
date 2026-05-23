@@ -66,7 +66,7 @@ async function ensureBillSheetColumns(gsapi: any) {
   const billSheet = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === "Bill");
   if (!billSheet) return;
   const currentCols = billSheet.properties?.gridProperties?.columnCount || 0;
-  if (currentCols < 13) {
+  if (currentCols < 15) {
     await gsapi.spreadsheets.batchUpdate({
       spreadsheetId: STORE_SHEET_ID,
       requestBody: {
@@ -74,7 +74,7 @@ async function ensureBillSheetColumns(gsapi: any) {
           updateSheetProperties: {
             properties: {
               sheetId: billSheet.properties?.sheetId,
-              gridProperties: { columnCount: 13 }
+              gridProperties: { columnCount: 15 }
             },
             fields: "gridProperties.columnCount"
           }
@@ -86,16 +86,33 @@ async function ensureBillSheetColumns(gsapi: any) {
       range: "Bill!1:1",
     });
     const headers = headerRow.data.values?.[0] || [];
+    const updates = [];
+    if (headers.length < 11 && !headers[10]) {
+      updates.push(["Bill!K1", [["Gpay Charges"]]]);
+    }
+    if (headers.length < 12 && !headers[11]) {
+      updates.push(["Bill!L1", [["Final Total"]]]);
+    }
     if (headers.length < 13 && !headers[12]) {
+      updates.push(["Bill!M1", [["Customer ID"]]]);
+    }
+    if (headers.length < 14 && !headers[13]) {
+      updates.push(["Bill!N1", [["Last Updated"]]]);
+    }
+    if (headers.length < 15 && !headers[14]) {
+      updates.push(["Bill!O1", [["Payment Mode"]]]);
+    }
+    for (const [range, values] of updates) {
       await gsapi.spreadsheets.values.update({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Bill!M1",
+        range: range,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [["Last Updated"]] }
+        requestBody: { values }
       });
     }
   }
 }
+
 
 async function logLoftFallback(
   gsapi: any,
@@ -438,11 +455,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const first = rows[0];
-        const customerId = first[11];
+        const gpayCharges = first[10] ? Number(first[10]) : null;
+        const finalTotal = Number(first[11]) || 0;
+        const customerId = first[12];
+        const paymentMode = first[14] || "Cash";
         const date = first[6];
         const time = first[7];
         const courier = Number(first[9]) || 0;
-        const finalTotal = Number(first[10]) || 0;
 
         let customerName = "Unknown";
         let customerPhone = "";
@@ -479,8 +498,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             date,
             time,
             courierCharges: courier,
+            paymentMode,
+            gpayCharges,
             finalTotal,
-            lastUpdated: first[12] || "",
+            lastUpdated: first[13] || "",
             originalRowIndexes: rowIndexes,
           },
         });
@@ -505,6 +526,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           items,
           courierCharges,
           finalTotal,
+          paymentMode = "Cash",
+          gpayCharges = null,
           customer,
           earnRate,
           redeemRate,
@@ -761,14 +784,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           originalTime,
           entry.profit,
           courierCharges > 0 ? courierCharges : "",
+          gpayCharges !== null ? gpayCharges : "",
           finalTotal,
           newCustomerId,
           timestamp,
+          paymentMode,
         ]);
 
         await gsapi.spreadsheets.values.append({
           spreadsheetId: STORE_SHEET_ID,
-          range: "Bill!A:M",
+          range: "Bill!A:O",
           valueInputOption: "USER_ENTERED",
           requestBody: { values: newRows },
         });
@@ -781,6 +806,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         items,
         finalTotal = 0,
         courierCharges = 0,
+        paymentMode = "Cash",
+        gpayCharges = null,
         customer,
         earnRate = 0,
       } = req.body;
@@ -980,14 +1007,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         time,
         entry.profit,
         courierCharges > 0 ? courierCharges : "",
+        gpayCharges !== null ? gpayCharges : "",
         finalTotal,
         customerId,
         timestamp,
+        paymentMode,
       ]);
 
       await gsapi.spreadsheets.values.append({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Bill!A:M",
+        range: "Bill!A:O",
         valueInputOption: "USER_ENTERED",
         requestBody: { values: billRows },
       });

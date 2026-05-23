@@ -67,6 +67,7 @@ export default function App() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [customerDropdownIndex, setCustomerDropdownIndex] = useState(-1);
   const [customerType, setCustomerType] = useState<"walk-in" | "courier">("walk-in");
+  const [paymentMode, setPaymentMode] = useState<"Cash" | "GPay">("Cash");
   const [showBillRetrieval, setShowBillRetrieval] = useState(false);
   const [billSearchNo, setBillSearchNo] = useState("");
   const [retrievedBill, setRetrievedBill] = useState<any>(null);
@@ -138,7 +139,9 @@ export default function App() {
   const courierChargesNum = Number(courierCharges) || 0;
   const amountReceivedNum = Number(amountReceived) || 0;
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
-  const finalTotal = grandTotal + courierChargesNum;
+  const subtotalWithCourier = grandTotal + courierChargesNum;
+  const gpayChargesNum = paymentMode === "GPay" ? Math.round(subtotalWithCourier * 0.02 * 100) / 100 : 0;
+  const finalTotal = subtotalWithCourier + gpayChargesNum;
   const changeAmount = amountReceivedNum > finalTotal ? amountReceivedNum - finalTotal : 0;
 
   const validateRecoveredPrices = async (recoveredItems: any[]) => {
@@ -165,10 +168,10 @@ export default function App() {
   // auto-save draft
   useEffect(() => {
     if (items.length > 0) {
-      const draft = { items, customerName, phone, phone2, redeemPoints, courierCharges, customerType };
+      const draft = { items, customerName, phone, phone2, redeemPoints, courierCharges, customerType, paymentMode };
       localStorage.setItem("billDraft", JSON.stringify(draft));
     }
-  }, [items, customerName, phone, phone2, redeemPoints, courierCharges, customerType]);
+  }, [items, customerName, phone, phone2, redeemPoints, courierCharges, customerType, paymentMode]);
 
   useEffect(() => {
     if (toast) {
@@ -182,7 +185,7 @@ export default function App() {
     const draft = localStorage.getItem("billDraft");
     if (draft) {
       try {
-        const { items: draftItems, customerName: draftName, phone: draftPhone, phone2: draftPhone2, redeemPoints: draftRedeem, courierCharges: draftCourier, customerType: draftType } = JSON.parse(draft);
+        const { items: draftItems, customerName: draftName, phone: draftPhone, phone2: draftPhone2, redeemPoints: draftRedeem, courierCharges: draftCourier, customerType: draftType, paymentMode: draftPayment } = JSON.parse(draft);
         if (draftItems?.length > 0) {
           const shouldRecover = window.confirm("You have an unsaved bill. Recover?");
           if (shouldRecover) {
@@ -196,6 +199,7 @@ export default function App() {
             setRedeemPoints(draftRedeem || false);
             setCourierCharges(draftCourier ? String(draftCourier) : "");
             setCustomerType(draftType === "courier" ? "courier" : "walk-in");
+            setPaymentMode(draftPayment === "GPay" ? "GPay" : "Cash");
             setToast({ message: "Bill recovered from draft", type: "success" });
           } else localStorage.removeItem("billDraft");
         }
@@ -715,6 +719,8 @@ export default function App() {
         items: items.map(i => ({ ...i, total: i.qty * i.price, profit: i.profit })),
         finalTotal,
         courierCharges: customerType === "courier" ? courierChargesNum : 0,
+        gpayCharges: paymentMode === "GPay" ? gpayChargesNum : null,
+        paymentMode: paymentMode,
         customer: { name: customerName, phone: phoneWithCountryCode(), phone2, type: customerType, courier: customerType === "courier" },
         earnRate: pointsConfig?.earnRate ?? 0,
         redeemRate: pointsConfig?.redeemRate ?? 0,
@@ -871,6 +877,7 @@ export default function App() {
     setPhone2(bill.customerPhone2 || "");
     setCourierCharges(bill.courierCharges ? String(bill.courierCharges) : "");
     setCustomerType(Number(bill.courierCharges) > 0 ? "courier" : "walk-in");
+    setPaymentMode(bill.paymentMode || "Cash");
     setEditingBillNo(bill.billNo);
     setOriginalBillDate(bill.date);
     setOriginalBillTime(bill.time);
@@ -1220,6 +1227,8 @@ button:active:not(:disabled) { transform: translateY(0); }
         <hr style={styles.divider} />
         <div style={styles.totalsBlock}>
           {courierChargesNum > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>Handling Charges: </span><span>+ ₹{formatPrice(courierChargesNum)}</span></div>}
+          {gpayChargesNum > 0 && <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#dc2626" }}><span>GPay Charges (2%): </span><span>+ ₹{formatPrice(gpayChargesNum)}</span></div>}
+          <div style={{ ...styles.discountRow, display:"flex", justifyContent:"space-between", paddingRight:"8px", color:"#666" }}><span>Payment Mode: </span><span>{paymentMode}</span></div>
           <div style={{ ...styles.grandTotalRow, display:"flex", justifyContent:"space-between" }}><span>Grand Total</span><span>₹{formatPrice(finalTotal)}</span></div>
         </div>
         <p style={styles.thankYou}>Thank you for your purchase!</p>
@@ -1255,6 +1264,10 @@ button:active:not(:disabled) { transform: translateY(0); }
         <div style={{ display:"flex", gap:"8px", marginBottom:"12px" }}>
           <button onClick={()=>{ setCustomerType("walk-in"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); setCourierCharges(""); setAmountReceived(""); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="walk-in"?700:500, backgroundColor:customerType==="walk-in"?"#10b981":"#e5e7eb", color:customerType==="walk-in"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>👤 Walk-in</button>
           <button onClick={()=>{ setCustomerType("courier"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="courier"?700:500, backgroundColor:customerType==="courier"?"#3b82f6":"#e5e7eb", color:customerType==="courier"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>🚚 Courier</button>
+        </div>
+        <div style={{ display:"flex", gap:"8px", marginBottom:"12px" }}>
+          <button onClick={()=>setPaymentMode("Cash")} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:paymentMode==="Cash"?700:500, backgroundColor:paymentMode==="Cash"?"#10b981":"#e5e7eb", color:paymentMode==="Cash"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>💵 Cash</button>
+          <button onClick={()=>setPaymentMode("GPay")} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:paymentMode==="GPay"?700:500, backgroundColor:paymentMode==="GPay"?"#3b82f6":"#e5e7eb", color:paymentMode==="GPay"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>📱 GPay</button>
         </div>
         <div style={{ display:"flex", gap:"12px", flexWrap:"wrap", alignItems:"center" }}>
           <div style={{ position:"relative", flex:1 }}>
@@ -1353,6 +1366,8 @@ button:active:not(:disabled) { transform: translateY(0); }
           {retrievedBill.items.map((it:any, idx:number)=> <div key={idx} style={{ display:"flex", justifyContent:"space-between", paddingBottom:"4px", borderBottom:"1px solid #e5e7eb" }}><span>{it.item} ({it.shade}) × {it.qty}</span><span>₹{formatPrice(it.total)}</span></div>)}
           <div style={{ marginTop:"8px", fontWeight:700, display:"flex", justifyContent:"space-between" }}><span>Final Total:</span><span>₹{formatPrice(retrievedBill.finalTotal)}</span></div>
           {retrievedBill.courierCharges > 0 && <div style={{ display:"flex", justifyContent:"space-between", color:"#dc2626", fontSize:"12px" }}><span>Courier:</span><span>₹{formatPrice(retrievedBill.courierCharges)}</span></div>}
+          {retrievedBill.gpayCharges && retrievedBill.gpayCharges > 0 && <div style={{ display:"flex", justifyContent:"space-between", color:"#dc2626", fontSize:"12px" }}><span>GPay Charges (2%):</span><span>₹{formatPrice(retrievedBill.gpayCharges)}</span></div>}
+          <div style={{ display:"flex", justifyContent:"space-between", color:"#666", fontSize:"12px", marginTop:"4px" }}><span>Payment Mode:</span><span>{retrievedBill.paymentMode || "Cash"}</span></div>
           <button onClick={()=>loadBillForEdit(retrievedBill)} style={{ marginTop:"12px", padding:"8px12px", width:"100%", fontSize:"13px", fontWeight:600, backgroundColor:"#10b981", color:"#fff", border:"none", borderRadius:"4px", cursor:"pointer" }}>📋 Load for Reprint</button>
         </div>}
       </div>}

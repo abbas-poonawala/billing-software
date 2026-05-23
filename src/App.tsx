@@ -1265,9 +1265,44 @@ button:active:not(:disabled) { transform: translateY(0); }
           <button onClick={()=>{ setCustomerType("walk-in"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); setCourierCharges(""); setAmountReceived(""); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="walk-in"?700:500, backgroundColor:customerType==="walk-in"?"#10b981":"#e5e7eb", color:customerType==="walk-in"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>👤 Walk-in</button>
           <button onClick={()=>{ setCustomerType("courier"); setCustomerName(""); setPhone(""); setPhone2(""); setCustomer(null); }} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:customerType==="courier"?700:500, backgroundColor:customerType==="courier"?"#3b82f6":"#e5e7eb", color:customerType==="courier"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>🚚 Courier</button>
         </div>
-        <div style={{ display:"flex", gap:"8px", marginBottom:"12px" }}>
-          <button onClick={()=>setPaymentMode("Cash")} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:paymentMode==="Cash"?700:500, backgroundColor:paymentMode==="Cash"?"#10b981":"#e5e7eb", color:paymentMode==="Cash"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>💵 Cash</button>
-          <button onClick={()=>setPaymentMode("GPay")} style={{ flex:1, padding:"8px12px", fontSize:"13px", fontWeight:paymentMode==="GPay"?700:500, backgroundColor:paymentMode==="GPay"?"#3b82f6":"#e5e7eb", color:paymentMode==="GPay"?"#fff":"#374151", border:"none", borderRadius:"4px", cursor:"pointer" }}>📱 GPay</button>
+        <div style={{ display:"flex", gap:"8px", marginBottom:"12px", alignItems:"center" }}>
+          <span style={{ fontSize:"12px", fontWeight:600, color:"#666", minWidth:"70px" }}>Payment:</span>
+          <div style={{ display:"flex", gap:"0", backgroundColor:"#e5e7eb", borderRadius:"4px", padding:"3px", flex:1, maxWidth:"200px" }}>
+            <button 
+              onClick={()=>setPaymentMode("Cash")} 
+              style={{ 
+                flex:1, 
+                padding:"6px 12px", 
+                fontSize:"12px", 
+                fontWeight:paymentMode==="Cash"?600:500, 
+                backgroundColor:paymentMode==="Cash"?"#10b981":"transparent", 
+                color:paymentMode==="Cash"?"#fff":"#666", 
+                border:"none", 
+                borderRadius:"3px", 
+                cursor:"pointer",
+                transition:"all 0.2s"
+              }}
+            >
+              💵 Cash
+            </button>
+            <button 
+              onClick={()=>setPaymentMode("GPay")} 
+              style={{ 
+                flex:1, 
+                padding:"6px 12px", 
+                fontSize:"12px", 
+                fontWeight:paymentMode==="GPay"?600:500, 
+                backgroundColor:paymentMode==="GPay"?"#3b82f6":"transparent", 
+                color:paymentMode==="GPay"?"#fff":"#666", 
+                border:"none", 
+                borderRadius:"3px", 
+                cursor:"pointer",
+                transition:"all 0.2s"
+              }}
+            >
+              📱 GPay
+            </button>
+          </div>
         </div>
         <div style={{ display:"flex", gap:"12px", flexWrap:"wrap", alignItems:"center" }}>
           <div style={{ position:"relative", flex:1 }}>

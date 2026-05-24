@@ -129,10 +129,6 @@ export default function PrintBill({
             <span>+ ₹{formatPrice(gpayCharges)}</span>
           </div>
         )}
-        <div style={styles.paymentModeRow}>
-          <span>Payment Mode:</span>
-          <span>{paymentMode}</span>
-        </div>
         <div style={styles.grandTotalRow}>
           <span>Grand Total</span>
           <span>₹{formatPrice(finalTotal)}</span>
@@ -219,13 +215,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#dc2626",
     fontWeight: 800,
     letterSpacing: "-0.3px",
-  },
-  paymentModeRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    minWidth: 260,
-    fontSize: 14,
-    color: "#666",
   },
   grandTotalRow: {
     display: "flex",

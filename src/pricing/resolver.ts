@@ -12,7 +12,7 @@
 
 import type { BillItem, PaymentMode } from "../types";
 
-// ─── Triosoft Slab Pricing ─────────────────────────────────────────────────
+// triosoft slab pricing
 
 const TRIOSOFT_ITEM = "triosoft";
 const TRIOSOFT_BULK_PRICE = 110;
@@ -50,7 +50,7 @@ export function applyTriosoftPricing(items: BillItem[]): BillItem[] {
   return updated.map(recalcItem);
 }
 
-// ─── GPay Surcharge ────────────────────────────────────────────────────────
+// gpay
 
 const GPAY_RATE = 0.02;
 
@@ -59,7 +59,7 @@ export function computeGPayCharge(subtotal: number, paymentMode: PaymentMode): n
   return Math.round(subtotal * GPAY_RATE * 100) / 100;
 }
 
-// ─── Bill Totals ───────────────────────────────────────────────────────────
+// bill totals
 
 export interface BillTotals {
   grandTotal: number;         // sum of all item totals
@@ -84,11 +84,11 @@ export function computeBillTotals(
   return { grandTotal, subtotalWithCourier, gpayCharge, finalTotal, changeAmount };
 }
 
-// ─── Row Recalculation ─────────────────────────────────────────────────────
+// row recalc
 
 /**
- * Recomputes total and profit for a single BillItem.
- * Always call this after mutating qty or price.
+recomputes total and profit for a single BillItem.
+always call this after mutating qty or price.
  */
 export function recalcItem(item: BillItem): BillItem {
   const qty = Number(item.qty) || 0;
@@ -100,14 +100,14 @@ export function recalcItem(item: BillItem): BillItem {
 }
 
 /**
- * Top-level function to apply all pricing rules to a bill.
- * Call this instead of setItems directly.
+top-level function to apply all pricing rules to a bill.
+call this instead of setItems directly.
  */
 export function applyAllPricingRules(items: BillItem[]): BillItem[] {
   return applyTriosoftPricing(items);
 }
 
-// ─── Points Calculation ────────────────────────────────────────────────────
+// points calc
 
 export function computePointsEarned(finalTotal: number, earnRate: number): number {
   return Math.floor((finalTotal / 100) * earnRate);

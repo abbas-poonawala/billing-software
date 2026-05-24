@@ -26,10 +26,9 @@ export function useItemSearch() {
   const {
     entryItem, entryShade,
     setEntryPrice, setEntryCost,
-    showToast,
   } = useBillingStore();
 
-  // Load all items (sessionStorage cache)
+  // load all items
   useEffect(() => {
     const cached = sessionStorage.getItem(ALL_ITEMS_KEY);
     if (cached) {
@@ -42,7 +41,7 @@ export function useItemSearch() {
     });
   }, []);
 
-  // Load shades when item changes
+  // load shades when item changes
   useEffect(() => {
     if (!entryItem) { setShades([]); setEntryCost(""); return; }
     if (!allItems.includes(entryItem)) { setShades([]); return; }
@@ -56,20 +55,20 @@ export function useItemSearch() {
     });
   }, [entryItem, allItems]);
 
-  // Auto-select single standard shade
+  // auto-select single standard shade
   useEffect(() => {
     if (shades.length === 1 && shades[0].toLowerCase() === "standard") {
       useBillingStore.getState().setEntryShade(shades[0]);
     }
   }, [shades]);
 
-  // Load cost when item+shade changes
+  // load cost when item+shade changes
   useEffect(() => {
     if (!entryItem || !entryShade || !allItems.includes(entryItem)) return;
     fetchCost(entryItem, entryShade).then(cost => setEntryCost(String(cost || "")));
   }, [entryItem, entryShade, allItems]);
 
-  // Load price when item+shade changes
+  // load price when item+shade changes
   const [warnedKey, setWarnedKey] = useState<string | null>(null);
   useEffect(() => {
     if (!entryItem || !entryShade) return;
@@ -97,7 +96,7 @@ export function useItemSearch() {
     });
   }, [entryItem, entryShade, shades, allItems]);
 
-  // ─── Fuse search ────────────────────────────────────────────────────────
+  // fuse search
 
   const itemFuse = useMemo(
     () => new Fuse(allItems, { threshold: 0.6, distance: 50, includeScore: true, minMatchCharLength: 2 }),

@@ -27,6 +27,7 @@ interface Props {
   gpayCharges: number;
   finalTotal: number;
   paymentMode: PaymentMode;
+  children?: React.ReactNode;
 }
 
 export default function PrintBill({
@@ -42,6 +43,7 @@ export default function PrintBill({
   gpayCharges,
   finalTotal,
   paymentMode,
+  children,
 }: Props) {
   return (
     <div id={id} style={styles.billArea}>
@@ -67,45 +69,49 @@ export default function PrintBill({
       </div>
 
       {/* Items Table */}
-      <table className="bill-table" style={styles.table}>
-        <thead>
-          <tr style={styles.theadRow}>
-            <th style={{ ...styles.th, width: "5%", textAlign: "center" }}>#</th>
-            <th style={{ ...styles.th, width: "30%" }}>Item</th>
-            <th style={{ ...styles.th, width: "28%" }}>Shade</th>
-            <th style={{ ...styles.th, width: "10%", textAlign: "center" }}>Qty</th>
-            <th style={{ ...styles.th, width: "12%", textAlign: "right", paddingRight: 20 }}>Price</th>
-            <th style={{ ...styles.th, width: "13%", textAlign: "right", paddingRight: 20 }}>Total</th>
-            <th className="no-print" style={{ ...styles.th, width: "2%" }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 ? (
-            <tr>
-              <td colSpan={7} style={{ textAlign: "center", padding: "24px 0", color: "#aaa" }}>
-                No items added yet
-              </td>
+      {children ? (
+        children
+      ) : (
+        <table className="bill-table" style={styles.table}>
+          <thead>
+            <tr style={styles.theadRow}>
+              <th style={{ ...styles.th, width: "5%", textAlign: "center" }}>#</th>
+              <th style={{ ...styles.th, width: "30%" }}>Item</th>
+              <th style={{ ...styles.th, width: "28%" }}>Shade</th>
+              <th style={{ ...styles.th, width: "10%", textAlign: "center" }}>Qty</th>
+              <th style={{ ...styles.th, width: "12%", textAlign: "right", paddingRight: 20 }}>Price</th>
+              <th style={{ ...styles.th, width: "13%", textAlign: "right", paddingRight: 20 }}>Total</th>
+              <th className="no-print" style={{ ...styles.th, width: "2%" }}></th>
             </tr>
-          ) : (
-            items.map((item, idx) => (
-              <tr key={idx} style={idx % 2 === 0 ? styles.trEven : styles.trOdd}>
-                <td style={{ ...styles.td, textAlign: "center", color: "#999", fontSize: 13 }}>{idx + 1}</td>
-                <td style={styles.td}>
-                  {item.item}
-                  {item.misc && <span className="no-print" style={{ fontSize: 10, color: "#e67e22" }}> (Misc)</span>}
+          </thead>
+          <tbody>
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: "center", padding: "24px 0", color: "#aaa" }}>
+                  No items added yet
                 </td>
-                <td style={styles.td}>{item.shade}</td>
-                <td style={{ ...styles.td, textAlign: "center" }}>{item.qty}</td>
-                <td style={{ ...styles.td, textAlign: "right", paddingRight: 20 }}>₹{formatPrice(item.price)}</td>
-                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700, paddingRight: 20 }}>
-                  ₹{formatPrice(item.total)}
-                </td>
-                <td className="no-print" style={styles.td} />
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              items.map((item, idx) => (
+                <tr key={idx} style={idx % 2 === 0 ? styles.trEven : styles.trOdd}>
+                  <td style={{ ...styles.td, textAlign: "center", color: "#999", fontSize: 13 }}>{idx + 1}</td>
+                  <td style={styles.td}>
+                    {item.item}
+                    {item.misc && <span className="no-print" style={{ fontSize: 10, color: "#e67e22" }}> (Misc)</span>}
+                  </td>
+                  <td style={styles.td}>{item.shade}</td>
+                  <td style={{ ...styles.td, textAlign: "center" }}>{item.qty}</td>
+                  <td style={{ ...styles.td, textAlign: "right", paddingRight: 20 }}>₹{formatPrice(item.price)}</td>
+                  <td style={{ ...styles.td, textAlign: "right", fontWeight: 700, paddingRight: 20 }}>
+                    ₹{formatPrice(item.total)}
+                  </td>
+                  <td className="no-print" style={styles.td} />
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      )}
 
       <hr style={styles.divider} />
 
@@ -138,7 +144,7 @@ export default function PrintBill({
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// styles
 
 const styles: Record<string, React.CSSProperties> = {
   billArea: {

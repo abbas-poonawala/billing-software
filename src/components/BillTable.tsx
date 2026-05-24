@@ -15,7 +15,6 @@ import EditableCell from "./EditableCell";
 import SearchDropdown from "./SearchDropdown";
 import { formatPrice } from "../utils/formatting";
 import { fetchPrice, fetchCost, fetchShades } from "../services/api";
-import { recalcItem } from "../pricing/resolver";
 
 interface Props {
   shadeCache: React.MutableRefObject<Record<string, string[]>>;
@@ -30,10 +29,9 @@ export default function BillTable({ shadeCache }: Props) {
     updateItemPrice,
     updateItemShade,
     confirmDelete,
-    showToast,
   } = useBillingStore();
 
-  // ─── Shade editing state (local — no store pollution) ────────────────────
+  // shade editing state
   const [editingShadeRow, setEditingShadeRow] = useState<number | null>(null);
   const [editingShadeValue, setEditingShadeValue] = useState("");
   const [shadeOptions, setShadeOptions] = useState<string[]>([]);

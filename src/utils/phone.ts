@@ -9,31 +9,28 @@ export function normalizePhone(phone: string): string {
   const input = phone.toString().trim();
   if (!input) return "";
 
-  // Already has + prefix — trust it, just strip extras
+  // already has + prefix - trust it, just strip extras
   if (input.startsWith("+")) {
     return input;
   }
 
-  // Strip all non-digits
+  // strip all non-digits
   const digits = input.replace(/[^0-9]/g, "");
 
-  // Extract the last 10 digits (actual mobile number)
+  // extract the last 10 digits pactual mobile no]
   const mobile = digits.slice(-10);
 
   return `+91${mobile}`;
 }
 
-/**
- * Returns true if the phone string represents a valid Indian mobile number.
- */
+// returns true if the phone string represents a valid indian mobile number
+
 export function isValidPhone(phone: string): boolean {
   const digits = phone.replace(/[^0-9]/g, "");
   return digits.length >= 10;
 }
 
-/**
- * Formats a phone for WhatsApp link (digits only, no +).
- */
+// formats a phone number for whatsapp url
 export function phoneForWhatsApp(phone: string): string {
   return normalizePhone(phone).replace("+", "");
 }

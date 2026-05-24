@@ -35,19 +35,19 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 function findBestShadeMatch(target: string, rows: any[]): any {
-  // Step 1: exact match
+  // step 1: exact match
   let match = rows.find((r: any) => normalizeShade(r[0] || "") === target);
   if (match) return { row: match, method: "exact" };
 
-  // Step 2: startsWith (row starts with target)
+  // step 2: startsWith [row starts with target]
   match = rows.find((r: any) => normalizeShade(r[0] || "").startsWith(target));
   if (match) return { row: match, method: "startsWith" };
 
-  // Step 3: reverse startsWith (target starts with row)
+  // step 3: reverse startsWith [target starts with row]
   match = rows.find((r: any) => target.startsWith(normalizeShade(r[0] || "")));
   if (match) return { row: match, method: "reverseStarts" };
 
-  // Step 4: fuzzy matching with Levenshtein distance
+  // step 4: fuzzy matching with levenshtein distance
   let bestMatch = null;
   let bestDistance = Math.max(3, Math.ceil(target.length * 0.3)); // allow 30% difference
   for (const row of rows) {
@@ -134,7 +134,7 @@ async function handleGetShades(gsapi: any, req: VercelRequest, res: VercelRespon
     return res.status(200).json({ shades: cached.shades });
   }
 
-  // Try primary sheet first
+  // try primary sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -149,7 +149,7 @@ async function handleGetShades(gsapi: any, req: VercelRequest, res: VercelRespon
     console.log(`Primary sheet lookup failed for item "${item}", trying LOFT`);
   }
 
-  // Fallback to LOFT sheet if primary sheet doesn't exist or is empty
+  // fallback to LOFT sheet if primary sheet doesn't exist or is empty
   try {
     const loftResponse = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -177,7 +177,7 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     return res.status(200).json({ price: cached.price, qty: cached.qty });
   }
 
-  // Try primary sheet first
+  // try primary sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -197,7 +197,7 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     console.log(`Primary sheet lookup failed for item "${item}", shade "${shade}", trying LOFT`);
   }
 
-  // Fallback to LOFT sheet if no match found in primary or primary sheet doesn't exist
+  // fallback to LOFT sheet if no match found in primary or primary sheet doesn't exist
   try {
     const loftResponse = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -217,7 +217,7 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     console.log(`LOFT sheet lookup also failed for item "${item}"`);
   }
 
-  // No match found in either sheet - return 0
+  // no match found in either sheet, return 0
   return res.status(200).json({ price: 0, qty: 0, method: "notfound" });
 }
 
@@ -230,7 +230,7 @@ async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse
   const normalizedItem = normalizeShade(item);
   const normalizedShade = shade && typeof shade === "string" ? normalizeShade(shade) : "";
 
-  // Try primary sheet first
+  // try primary sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -398,10 +398,10 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
   const rows = response.data.values || [];
   const phoneNormalized = normalizePhone(phone);
   
-  // Search both phone (index 2) and phone2 (index 3)
+  // search both phone (column 3) and phone2 (column 4)
   const matched = rows.find((r: any) => {
-    const rowPhone = normalizePhone(r[2]?.toString() || "");
-    const rowPhone2 = normalizePhone(r[3]?.toString() || "");
+    const rowPhone = normalizePhone(r[3]?.toString() || "");
+    const rowPhone2 = normalizePhone(r[4]?.toString() || "");
     return rowPhone === phoneNormalized || rowPhone2 === phoneNormalized;
   });
 

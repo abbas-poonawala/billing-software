@@ -56,7 +56,7 @@ export default function SearchDropdown({
 
   const visible = options.slice(0, maxVisible);
 
-  // Reset highlight when options change
+  // reset highlight when options change
   useEffect(() => {
     setHighlightIdx(-1);
   }, [options]);
@@ -138,7 +138,7 @@ export default function SearchDropdown({
         </span>
       )}
 
-      {/* Dropdown list */}
+      {/* dropdown list */}
       {showDropdown && (
         <div style={{
           position: "absolute",

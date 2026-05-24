@@ -22,7 +22,7 @@ export function useBillDraft() {
     showToast,
   } = useBillingStore();
 
-  // Auto-save whenever bill data changes
+  // auto-save whenever bill data changes
   useEffect(() => {
     if (items.length === 0) return;
     const draft: BillDraft = {
@@ -32,7 +32,7 @@ export function useBillDraft() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [items, customerName, phone, phone2, redeemPoints, courierCharges, customerType, paymentMode]);
 
-  // Recover on mount
+  // recover on mount
   useEffect(() => {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return;
@@ -53,7 +53,7 @@ export function useBillDraft() {
       return;
     }
 
-    // Validate prices for non-misc items
+    // validate prices for non-misc items
     (async () => {
       const changes: string[] = [];
       const validatedItems = await Promise.all(
@@ -83,7 +83,7 @@ export function useBillDraft() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Call this after a successful save to clear the draft */
+  // call this after a successful save to clear the draft
   const clearDraft = () => localStorage.removeItem(DRAFT_KEY);
 
   return { clearDraft };

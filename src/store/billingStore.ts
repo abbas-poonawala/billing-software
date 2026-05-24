@@ -1,6 +1,5 @@
 /**
  * Billing Store (Zustand)
- * ───────────────────────
  * Single source of truth for all mutable billing state.
  * Replaces ~30 useState calls in App.tsx.
  *
@@ -14,20 +13,20 @@ import { create } from "zustand";
 import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig, Toast } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
 
-// ─── State Shape ──────────────────────────────────────────────────────────
+//start of billing store code
 
 interface BillingState {
-  // Bill items
+  // bill items
   items: BillItem[];
 
-  // Entry form fields
+  // entry form fields
   entryItem: string;
   entryShade: string;
   entryQty: number;
   entryPrice: string;
   entryCost: string;
 
-  // Customer
+  // customer
   customer: Customer | null;
   customerName: string;
   phone: string;
@@ -35,12 +34,12 @@ interface BillingState {
   customerType: CustomerType;
   redeemPoints: boolean;
 
-  // Payment
+  // payment
   paymentMode: PaymentMode;
   courierCharges: string;
   amountReceived: string;
 
-  // Bill meta
+  // bill meta
   nextBillNo: number | null;
   billDate: string;
   billTime: string;
@@ -49,7 +48,7 @@ interface BillingState {
   originalBillTime: string;
   originalRowIndexes: number[];
 
-  // UI state
+  // ui state
   saving: boolean;
   savingProgress: boolean;
   selectedRow: number | null;
@@ -58,11 +57,10 @@ interface BillingState {
   lastDeletedItem: BillItem | null;
   lastDeletedIdx: number | null;
 
-  // Points config
+  // points config
   pointsConfig: PointsConfig | null;
 
-  // ─── Actions ────────────────────────────────────────────────────────────
-
+  // actions
   setItems: (items: BillItem[]) => void;
   updateItems: (items: BillItem[]) => void; // applies pricing rules
   addItem: (item: BillItem) => void;
@@ -107,8 +105,7 @@ interface BillingState {
   resetBill: () => void; // clear after save
 }
 
-// ─── Initial State ────────────────────────────────────────────────────────
-
+// initial state
 const now = new Date();
 const ISTDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
 const ISTTime = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
@@ -146,8 +143,7 @@ const INITIAL: Omit<BillingState, keyof ReturnType<typeof actions>> = {
   pointsConfig: null,
 };
 
-// ─── Store ────────────────────────────────────────────────────────────────
-
+// store creation
 function actions(set: any, get: any) {
   return {
     setItems: (items: BillItem[]) => set({ items }),
@@ -198,7 +194,7 @@ function actions(set: any, get: any) {
         const profit = total - it.cost * it.qty;
         return { ...it, price, total, profit, priceOverridden: true };
       });
-      // Don't run pricing rules — this is a manual override
+      // don't run pricing rules — this is a manual override
       set({ items });
     },
 
@@ -279,9 +275,9 @@ export const useBillingStore = create<BillingState>((set, get) => ({
   ...actions(set, get),
 }));
 
-// ─── Derived Selectors ────────────────────────────────────────────────────
+// derived selectors
 
-/** Computed totals — use this in components, never recompute inline */
+/** computed totals - use this in components, never recompute inline */
 export function useBillTotals() {
   const { items, courierCharges, paymentMode, amountReceived } = useBillingStore();
   return computeBillTotals(

@@ -162,21 +162,21 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
     for (const sheetName of allSheets) {
       if (skipTabs.includes(sheetName.toLowerCase())) continue;
       try {
-        // Try to read first row to check for headers
+        // try to read first row to check for headers
         const headers = await gsapi.spreadsheets.values.get({
           spreadsheetId: STORE_SHEET_ID,
           range: `${escapeSheetName(sheetName)}!1:1`,
         });
         const headerRow = headers.data.values?.[0] || [];
         
-        // Check if sheet has "Shade" header (case insensitive) in any column
+        // check if sheet has "Shade" header in any column
         const hasShade = headerRow.some(h => h?.toString().trim().toLowerCase() === "shade");
         
         if (hasShade) {
           itemSheets.push(sheetName);
         } else {
-          // Fallback: if first row looks like data (not headers), assume it's a valid item sheet
-          // Check if B2:C has any data to determine if sheet structure is valid
+          // fallback: if first row looks like data [not headers], assume it's a valid item sheet
+          // check if B2:C has any data to determine if sheet structure is valid
           try {
             const dataCheck = await gsapi.spreadsheets.values.get({
               spreadsheetId: STORE_SHEET_ID,
@@ -184,11 +184,11 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
             });
             const firstDataRow = dataCheck.data.values?.[0] || [];
             if (firstDataRow.length > 0 || headerRow.length > 0) {
-              // Sheet has structure, assume it's a valid item sheet even without explicit "Shade" header
+              // sheet has structure, assume its a valid item sheet even without explicit "Shade" header
               itemSheets.push(sheetName);
             }
           } catch (innerErr) {
-            // Can't read data, skip sheet
+            // cant read data, skip sheet
           }
         }
       } catch (err) {
@@ -249,7 +249,7 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
           let finalShade = original;
           if (alternatesForItem.has(original)) {
             finalShade = alternatesForItem.get(original)!;
-            // if this alternate shade is already used for another original, skip? or allow? we'll allow but warn
+            // if this alternate shade is already used for another original, we'll allow but warn
             if (usedAlternateForOriginal.has(finalShade)) {
               console.log(`Alternate ${finalShade} already used for ${usedAlternateForOriginal.get(finalShade)}, skipping ${original}`);
               continue;

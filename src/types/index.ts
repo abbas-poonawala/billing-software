@@ -1,4 +1,4 @@
-// ─── Domain Types ──────────────────────────────────────────────────────────────
+// domain types
 
 export type PaymentMode = "Cash" | "GPay";
 export type CustomerType = "walk-in" | "courier";
@@ -8,16 +8,16 @@ export type BillItem = {
   shade: string;
   qty: number;
   cost: number;
-  /** The price currently shown / used for calculation */
+  // current price - may be overridden by user or modified by pricing rules
   price: number;
-  /** The price fetched from the sheet — never mutated after add */
+  // fetched price
   originalPrice: number;
-  /** The effective price shown to the user (same as price, kept for clarity) */
+  // price after applying rules, but before manual override
   effectivePrice?: number;
   total: number;
   profit: number;
   misc?: boolean;
-  /** True only when the cashier has manually overridden the price */
+  // true only when the cashier has manually overridden the price
   priceOverridden?: boolean;
 };
 

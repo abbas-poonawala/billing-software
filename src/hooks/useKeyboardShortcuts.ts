@@ -48,7 +48,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
       const isInput = tag === "INPUT" || tag === "TEXTAREA";
       const phoneValid = isValidPhone(phone);
 
-      // ── Global shortcuts ───────────────────────────────────────────────
+      // global shortcuts 
       if (e.ctrlKey && e.key === "s") {
         e.preventDefault();
         if (phoneValid && items.length > 0 && !saving) handlers.onSaveBill();
@@ -60,16 +60,20 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         return;
       }
 
-      // ── Row navigation (when not in input) ────────────────────────────
+      // row nav
       if (!isInput) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setSelectedRow(prev => (prev === null ? 0 : Math.min(prev + 1, items.length - 1)));
+          const store = useBillingStore.getState();
+          const current = store.selectedRow;
+          setSelectedRow(current === null ? 0 : Math.min(current + 1, items.length - 1));
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          setSelectedRow(prev => (prev === null ? 0 : Math.max(prev - 1, 0)));
+          const store = useBillingStore.getState();
+          const current = store.selectedRow;
+          setSelectedRow(current === null ? 0 : Math.max(current - 1, 0));
           return;
         }
       }
@@ -79,7 +83,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         return;
       }
 
-      // ── Input-specific navigation ──────────────────────────────────────
+      // input nav
       if (isInput) {
         if (e.key === "ArrowRight") {
           const idx = fields.findIndex(r => r.current === target);
@@ -99,7 +103,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         }
       }
 
-      // ── Barcode input ─────────────────────────────────────────────────
+      // barcode input
       if (target === barcodeRef.current) {
         if ((e.key === "Enter" || e.key === "Tab") && target === barcodeRef.current) {
           e.preventDefault();
@@ -108,7 +112,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         }
       }
 
-      // ── Tab: accept suggestion ────────────────────────────────────────
+      // tab
       if (e.key === "Tab") {
         if (target === itemRef.current && handlers.hasItemSuggestion) {
           e.preventDefault();
@@ -122,7 +126,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         }
       }
 
-      // ── Enter: context-aware action ───────────────────────────────────
+      // context aware enter
       if (e.key !== "Enter") return;
 
       if (target === itemRef.current) {
@@ -157,7 +161,7 @@ export function useKeyboardShortcuts(refs: Refs, handlers: Handlers) {
         return;
       }
 
-      // Fallback: if on a non-button element and form looks complete
+      // fallback: if on a non-button element and form looks complete
       if (tag !== "BUTTON" && entryItem && entryShade && entryPrice) {
         e.preventDefault();
         handlers.onAddItem();

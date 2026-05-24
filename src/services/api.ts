@@ -1,14 +1,12 @@
 /**
  * API Service
- * ───────────
  * All network calls live here. Components never call fetch() directly.
  * Uses 4 API routes (Vercel limit) with action routing.
  */
 
 import type { Customer, PointsConfig, RetrievedBill } from "../types";
 
-// ─── Inventory / Core ─────────────────────────────────────────────────────
-
+// inventory
 export async function fetchItems(): Promise<string[]> {
   const res = await fetch("/api/core?action=getItems");
   const data = await res.json();
@@ -53,8 +51,7 @@ export async function fetchPointsConfig(): Promise<PointsConfig | null> {
   }
 }
 
-// ─── Customer Search ──────────────────────────────────────────────────────
-
+// customer search
 export async function searchCustomersByName(name: string): Promise<Customer[]> {
   const res = await fetch(
     `/api/core?action=searchCustomersByName&name=${encodeURIComponent(name.trim())}`
@@ -79,8 +76,7 @@ export async function searchCustomersById(customerId: string): Promise<Customer 
   return data.customer || null;
 }
 
-// ─── Barcode ──────────────────────────────────────────────────────────────
-
+// barcode lookup
 export interface BarcodeResult {
   item: string;
   shade: string;
@@ -94,8 +90,7 @@ export async function lookupBarcode(barcode: string): Promise<BarcodeResult> {
   return data;
 }
 
-// ─── Bill ─────────────────────────────────────────────────────────────────
-
+// billing
 export async function fetchNextBillNo(): Promise<number> {
   const res = await fetch("/api/bill");
   const data = await res.json();
@@ -144,8 +139,7 @@ export async function saveBill(payload: SaveBillPayload): Promise<{ billNo: numb
   return data;
 }
 
-// ─── Restock ──────────────────────────────────────────────────────────────
-
+// restock
 export interface RestockResult {
   message?: string;
   summary?: string;
@@ -159,8 +153,7 @@ export async function fetchStoreRestock(item: string): Promise<RestockResult> {
   return data;
 }
 
-// ─── Price Validation (for draft recovery) ───────────────────────────────
-
+// pricing rules validation
 export async function validateItemPrice(
   item: string,
   shade: string,

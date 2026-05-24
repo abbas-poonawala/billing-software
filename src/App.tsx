@@ -1,29 +1,24 @@
-/**
- * App.tsx (Refactored)
- * ─────────────────────
- * Orchestrator only. Business logic lives in:
- *   - src/store/billingStore.ts  (state)
- *   - src/pricing/resolver.ts   (pricing)
- *   - src/services/api.ts       (network)
- *   - src/hooks/               (effects & keyboard)
- *   - src/components/          (UI pieces)
- *   - src/utils/               (pure functions)
- */
+/*
+App.tsx
+Orchestrator only. Business logic lives in:
+src/store/billingStore.ts  [state]
+src/pricing/resolver.ts    [pricing]
+src/services/api.ts         [network]
+src/hooks/                  [effects & keyboard]
+src/components/             [UI pieces]
+src/utils/                  [pure functions]
+*/
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import Fuse from "fuse.js";
+import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
-
 import { useBillingStore, useBillTotals, useDisplayBillMeta } from "./store/billingStore";
 import { useBillDraft } from "./hooks/useBillDraft";
 import { useItemSearch } from "./hooks/useItemSearch";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-
 import SearchDropdown from "./components/SearchDropdown";
 import BillTable from "./components/BillTable";
 import PrintBill from "./components/print/PrintBill";
 import CustomerSection from "./components/CustomerSection";
-
 import { recalcItem } from "./pricing/resolver";
 import {
   fetchNextBillNo as apiFetchNextBillNo,
@@ -36,7 +31,7 @@ import { formatPrice, getISTNow } from "./utils/formatting";
 import { normalizePhone, isValidPhone, phoneForWhatsApp } from "./utils/phone";
 import type { BillItem, RetrievedBill } from "./types";
 
-// ─── Print/Image Helpers (self-contained) ────────────────────────────────────
+// print/image helpers [self-contained]
 
 async function svgToPngDataUrl(svgUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -77,19 +72,19 @@ async function captureBillImage(): Promise<Blob | null> {
   }
 }
 
-// ─── App ─────────────────────────────────────────────────────────────────────
+// app
 
 export default function App() {
-  // ── Store ────────────────────────────────────────────────────────────────
+  // store
   const store = useBillingStore();
   const totals = useBillTotals();
   const { displayBillNo, displayBillDate, displayBillTime } = useDisplayBillMeta();
 
-  // ── Hooks ─────────────────────────────────────────────────────────────────
+  // hooks
   const { clearDraft } = useBillDraft();
   const search = useItemSearch();
 
-  // ── Local UI state ────────────────────────────────────────────────────────
+  // local ui area
   const [barcode, setBarcode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [printPreview, setPrintPreview] = useState(false);
@@ -99,14 +94,14 @@ export default function App() {
   const [retrievedBill, setRetrievedBill] = useState<RetrievedBill | null>(null);
   const [billRetrievalLoading, setBillRetrievalLoading] = useState(false);
 
-  // ── Refs ──────────────────────────────────────────────────────────────────
+  // refs
   const itemRef = useRef<HTMLInputElement>(null);
   const shadeRef = useRef<HTMLInputElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
-  // ── Bill number refresh ───────────────────────────────────────────────────
+  // bill no refresh
   const refreshBillNo = () => {
     if (store.editingBillNo) return;
     apiFetchNextBillNo().then(n => store.setNextBillNo(n)).catch(() => store.setNextBillNo(1));
@@ -130,24 +125,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [store.editingBillNo]);
 
-  // ── Points config ─────────────────────────────────────────────────────────
+  // points
   useEffect(() => {
     import("./services/api").then(({ fetchPointsConfig }) =>
       fetchPointsConfig().then(store.setPointsConfig)
     );
   }, []);
 
-  // ── Toast auto-dismiss ────────────────────────────────────────────────────
+  // toast dismiss
   useEffect(() => {
     if (!store.toast) return;
     const t = setTimeout(store.dismissToast, 3500);
     return () => clearTimeout(t);
   }, [store.toast]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
+  // derived phone no
   const isPhoneValid = isValidPhone(store.phone);
 
-  // ── Add item ──────────────────────────────────────────────────────────────
+  // add item
   const addItem = async (fromBarcode = false) => {
     const { entryItem, entryShade, entryQty, entryPrice, entryCost } = store;
     if (!entryItem?.trim()) { alert("Enter item name"); return; }
@@ -189,7 +184,7 @@ export default function App() {
     setTimeout(() => (fromBarcode ? barcodeRef.current : itemRef.current)?.focus(), 50);
   };
 
-  // ── Barcode ───────────────────────────────────────────────────────────────
+  // barcode scanning
   const handleBarcodeScan = async () => {
     const code = barcode.trim();
     if (!code) return;
@@ -210,7 +205,7 @@ export default function App() {
     }
   };
 
-  // ── Save bill ─────────────────────────────────────────────────────────────
+  // save bill
   const saveBill = async (): Promise<boolean> => {
     if (store.items.length === 0 || store.saving) return false;
     if (!isPhoneValid) { alert("Enter 10-digit phone"); return false; }
@@ -259,7 +254,7 @@ export default function App() {
     }
   };
 
-  // ── WhatsApp send ─────────────────────────────────────────────────────────
+  // send through whatsapp
   const sendWhatsApp = async () => {
     if (!store.phone || store.items.length === 0) return;
     if (!isPhoneValid) { store.showToast("Invalid phone number", "error"); return; }
@@ -296,7 +291,7 @@ export default function App() {
     store.setSavingProgress(false);
   };
 
-  // ── Bill retrieval ────────────────────────────────────────────────────────
+  // retrieve bill
   const retrieveBill = async (billNo: number) => {
     if (billNo <= 0) { store.showToast("Enter valid bill number", "error"); return; }
     setBillRetrievalLoading(true);
@@ -326,7 +321,7 @@ export default function App() {
     store.showToast("Bill loaded. Edit and re-save.", "success");
   };
 
-  // ── Restock ───────────────────────────────────────────────────────────────
+  // restock
   const generateStoreRestock = async () => {
     const input = window.prompt("Enter item name (or 'all'):");
     if (!input?.trim()) return;
@@ -344,7 +339,7 @@ export default function App() {
     }
   };
 
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // keyboard
   useKeyboardShortcuts(
     { itemRef, shadeRef, qtyRef, priceRef, barcodeRef },
     {
@@ -370,10 +365,7 @@ export default function App() {
     }
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
-
+  // rendering
   return (
     <div style={styles.container}>
       <style>{globalStyles}</style>
@@ -388,7 +380,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Delete confirmation modal */}
+      {/* delete confirm */}
       {store.deleteConfirmIdx !== null && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
@@ -409,9 +401,9 @@ export default function App() {
         <span style={{ fontWeight: 700, textTransform: "uppercase" }}>Shortcuts:</span> Enter to add • Tab autocomplete • Ctrl+S save • Ctrl+Enter save & send
       </div>
 
-      {/* Entry form */}
+      {/* entry form */}
       <div className="no-print" style={styles.card}>
-        {/* Barcode row */}
+        {/* barcode row */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input
             ref={barcodeRef}
@@ -425,7 +417,7 @@ export default function App() {
           {barcodeLoading && <span>⌛</span>}
         </div>
 
-        {/* Item / Shade / Qty / Price row */}
+        {/* item/shade/qty/price row */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
           <SearchDropdown
             value={store.entryItem}
@@ -488,7 +480,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Print bill — always in DOM so html2canvas can capture it */}
+      {/* print bill - always in DOM so html2canvas can capture it */}
       <PrintBill
         id="print-bill"
         items={store.items}
@@ -503,7 +495,7 @@ export default function App() {
         finalTotal={totals.finalTotal}
         paymentMode={store.paymentMode}
       >
-        {/* Augmented table with live editing controls (only visible on screen) */}
+        {/* augmented table with live editing controls */}
         <table className="bill-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10, border: "1px solid #0f172a" }}>
           <thead>
             <tr style={{ backgroundColor: "#f0f1f3" }}>
@@ -522,7 +514,7 @@ export default function App() {
         </table>
       </PrintBill>
 
-      {/* Cash received / change */}
+      {/* change to tender */}
       <div className="no-print" style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, gap: 16, alignItems: "center" }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>Cash Received:</span>
         <input
@@ -539,10 +531,10 @@ export default function App() {
         )}
       </div>
 
-      {/* Customer section */}
+      {/* customer section */}
       <CustomerSection />
 
-      {/* Action buttons */}
+      {/* action buttons */}
       <div className="no-print" style={styles.actions}>
         {store.lastDeletedItem && (
           <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => { store.undoDelete(); store.showToast("Item restored", "success"); }}>
@@ -570,7 +562,7 @@ export default function App() {
         </button>
       </div>
 
-      {/* Bill retrieval panel */}
+      {/* bill retrieval panel */}
       {showBillRetrieval && (
         <div className="no-print" style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -626,7 +618,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Print preview modal */}
+      {/* print preview modal */}
       {printPreview && (
         <div style={styles.overlay} onClick={() => setPrintPreview(false)}>
           <div style={styles.previewModal} onClick={e => e.stopPropagation()}>
@@ -660,8 +652,7 @@ export default function App() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
+// styles
 const styles: Record<string, React.CSSProperties> = {
   container: { maxWidth: 900, margin: "28px auto", fontFamily: "'Montserrat', sans-serif", background: "#f8f9fb", padding: 28 },
   title: { textAlign: "center", marginBottom: 28, fontWeight: 800, fontSize: 32, letterSpacing: "-1px", color: "#0f172a", textTransform: "uppercase" },

@@ -36,17 +36,17 @@ export default function EditableCell({
   children,
 }: Props) {
   const [editing, setEditing] = useState(false);
-  // ⚠️ editedValue is LOCAL — not synced from props while editing
+  // ⚠️ editedValue is LOCAL - not synced from props while editing
   const [editedValue, setEditedValue] = useState(String(value));
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // When we START editing, snapshot the current value
+  // when we START editing, snapshot the current value
   const startEditing = () => {
     setEditedValue(String(value));
     setEditing(true);
   };
 
-  // Focus input when editing starts
+  // focus input when editing starts
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);

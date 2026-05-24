@@ -1,9 +1,11 @@
 /**
  * Normalizes a phone number to E.164 format (+91XXXXXXXXXX).
  * Handles cases where 91 is repeated multiple times.
+ * Returns empty string if no valid 10-digit mobile found.
  *
  * ✅ Correct:  919876543210  → +919876543210
  * ❌ Wrong:    9191919876543210 → +919876543210  (de-duped)
+ * ✅ Empty:    "" or "91" → ""  (no valid mobile)
  */
 export function normalizePhone(phone: string): string {
   const input = phone.toString().trim();
@@ -17,8 +19,11 @@ export function normalizePhone(phone: string): string {
   // strip all non-digits
   const digits = input.replace(/[^0-9]/g, "");
 
-  // extract the last 10 digits pactual mobile no]
+  // extract the last 10 digits [actual mobile no]
   const mobile = digits.slice(-10);
+
+  // if no valid 10-digit mobile, return empty
+  if (mobile.length < 10) return "";
 
   return `+91${mobile}`;
 }

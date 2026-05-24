@@ -42,7 +42,6 @@ export default function PrintBill({
   courierCharges,
   gpayCharges,
   finalTotal,
-  paymentMode,
   children,
 }: Props) {
   return (

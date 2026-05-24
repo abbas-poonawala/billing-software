@@ -7,11 +7,10 @@
  * All customer search logic is here — not in App.tsx.
  */
 
-import React, { useCallback, useRef } from "react";
+import React, {useRef} from 'react';
 import { useBillingStore } from "../store/billingStore";
 import SearchDropdown from "./SearchDropdown";
 import { searchCustomersByName, searchCustomersByPhone, searchCustomersById } from "../services/api";
-import { isValidPhone } from "../utils/phone";
 import { formatPrice } from "../utils/formatting";
 import type { Customer } from "../types";
 import { computePointsValue } from "../pricing/resolver";

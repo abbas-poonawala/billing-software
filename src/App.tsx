@@ -238,11 +238,20 @@ export default function App() {
         } : {}),
       };
 
-      await apiSaveBill(payload);
+      const response = await apiSaveBill(payload);
       search.clearCaches();
       clearDraft();
       store.resetBill();
       refreshBillNo();
+      
+      // Show fallback usage toasts if any
+      if (response?.fallbackUsage && response.fallbackUsage.length > 0) {
+        for (const fallback of response.fallbackUsage) {
+          const msg = `Loft fallback used for ${fallback.item}${fallback.shade ? ` (${fallback.shade})` : ''}`;
+          store.showToast(msg, "info");
+        }
+      }
+      
       store.showToast(`Bill #${store.nextBillNo} saved!`, "success");
       return true;
     } catch (err: any) {

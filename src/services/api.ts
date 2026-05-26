@@ -126,7 +126,7 @@ export interface SaveBillPayload {
   originalRowIndexes?: number[];
 }
 
-export async function saveBill(payload: SaveBillPayload): Promise<{ billNo: number; customerId: string }> {
+export async function saveBill(payload: SaveBillPayload): Promise<{ billNo: number; customerId: string; fallbackUsage?: Array<{ item: string; shade: string; individualsUsed: number; packetsOpened: number }> }> {
   const isEdit = Boolean(payload.originalBillNo);
   const url = isEdit ? "/api/bill?action=edit" : "/api/bill";
   const res = await fetch(url, {

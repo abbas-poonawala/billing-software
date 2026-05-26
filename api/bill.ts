@@ -127,12 +127,16 @@ async function logLoftFallback(
   timestamp: string
 ) {
   try {
+    console.log(`[LOG_FALLBACK_START] Bill: ${billNo}, Item: ${item}, Shade: ${shade}, Total: ${qtyFromLoft}, Indiv: ${individualsUsed}, Pkts: ${packetsOpened}`);
+
     const sheetMeta = await gsapi.spreadsheets.get({
       spreadsheetId: STORE_SHEET_ID,
       fields: "sheets.properties.title",
     });
     const sheetExists = (sheetMeta.data.sheets || []).some((s: any) => s.properties?.title === "Loft Fallback Log");
+    
     if (!sheetExists) {
+      console.log(`[LOG_FALLBACK_CREATE] Creating Loft Fallback Log sheet`);
       await gsapi.spreadsheets.batchUpdate({
         spreadsheetId: STORE_SHEET_ID,
         requestBody: {
@@ -146,16 +150,22 @@ async function logLoftFallback(
         requestBody: { values: [["Timestamp", "Bill No", "Item", "Shade", "Total From Loft", "Individual Balls Used", "Packets Opened", "Leftover Balls", "Packet Size"]] }
       });
     }
+
+    const logRow = [timestamp, billNo, item, shade, qtyFromLoft, individualsUsed, packetsOpened, leftoverBalls, packetSize];
+    console.log(`[LOG_FALLBACK_APPEND] Row: ${JSON.stringify(logRow)}`);
+
     await gsapi.spreadsheets.values.append({
       spreadsheetId: STORE_SHEET_ID,
       range: "Loft Fallback Log!A:I",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[timestamp, billNo, item, shade, qtyFromLoft, individualsUsed, packetsOpened, leftoverBalls, packetSize]],
+        values: [logRow],
       },
     });
+
+    console.log(`[LOG_FALLBACK_SUCCESS] Bill: ${billNo}, Item: ${item}`);
   } catch (err) {
-    console.error("Failed to log loft fallback:", err);
+    console.error(`[LOG_FALLBACK_ERROR] Bill: ${billNo}, Item: ${item}, Error: ${(err as any).message}`);
   }
 }
 
@@ -175,6 +185,22 @@ async function restoreLoftStock(gsapi: any, item: string, rowNumber: number, ind
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [[individuals, packets]] },
   });
+}
+
+// Get Loft fallback log entries for a bill (to properly restore on edit)
+async function getLoftFallbackLogForBill(gsapi: any, billNo: number): Promise<Array<any>> {
+  try {
+    const logRes = await gsapi.spreadsheets.values.get({
+      spreadsheetId: STORE_SHEET_ID,
+      range: "Loft Fallback Log!A2:I",
+    });
+    const logRows = logRes.data.values || [];
+    // Find entries for this bill number (column B = Bill No)
+    return logRows.filter((row: any) => Number(row[1]) === billNo);
+  } catch (err) {
+    console.error(`[EDIT_LOG_QUERY_ERROR] Failed to query Loft Fallback Log: ${(err as any).message}`);
+    return [];
+  }
 }
 
 interface StockValidationResult {
@@ -242,15 +268,22 @@ async function validateAllItemsStock(
           range: `${escapeSheetName(item)}!A2:L`,
         });
         const loftRows = loftRes.data.values || [];
-        loftRowIndex = loftRows.findIndex(
-          (row: any) => row[0]?.toString().trim().toLowerCase() === shade?.toString().trim().toLowerCase()
-        );
-        if (loftRowIndex !== -1) {
-          loftIndividuals = Number(loftRows[loftRowIndex][4]) || 0;
-          loftPackets = Number(loftRows[loftRowIndex][5]) || 0;
-          packetSize = await getPacketSize(gsapi, item);
+        if (!loftRows.length) {
+          // No rows in Loft sheet - item doesn't exist there
+          loftRowIndex = -1;
+        } else {
+          loftRowIndex = loftRows.findIndex(
+            (row: any) => row[0]?.toString().trim().toLowerCase() === shade?.toString().trim().toLowerCase()
+          );
+          if (loftRowIndex !== -1) {
+            loftIndividuals = Number(loftRows[loftRowIndex][4]) || 0;
+            loftPackets = Number(loftRows[loftRowIndex][5]) || 0;
+            packetSize = await getPacketSize(gsapi, item);
+          }
         }
-      } catch (loftErr) {
+      } catch (loftErr: any) {
+        // Loft sheet lookup failed - log error but don't fail validation
+        console.error(`[LOFT_LOOKUP_ERROR] Item: ${item}, Error: ${loftErr.message}`);
         loftRowIndex = -1;
       }
 
@@ -330,6 +363,8 @@ async function deductAllItemsStock(
     const multiplier = getStockDeductionMultiplier();
     const deductionQty = qty * multiplier;
 
+    console.log(`[DEDUCT_START] Item: ${item}, Shade: ${shade}, Qty: ${deductionQty}, StoreIdx: ${storeRowIndex}, StoreQty: ${storeStock}, LoftIdx: ${loftRowIndex}, LoftIndiv: ${loftIndividuals}, LoftPkts: ${loftPackets}`);
+
     try {
       let remaining = deductionQty;
       let usedStore = 0;
@@ -338,14 +373,17 @@ async function deductAllItemsStock(
       let leftoverBalls = 0;
 
       // STEP 1: Deduct from Store
-      if (storeRowIndex !== -1) {
+      if (storeRowIndex !== -1 && storeStock > 0) {
         usedStore = Math.min(remaining, storeStock);
-        const newStore = storeStock - usedStore;
+        const newStore = Math.max(0, storeStock - usedStore);  // Ensure no negative stock
         remaining -= usedStore;
+
+        const storeCell = `${escapeSheetName(item)}!C${storeRowIndex + 2}`;
+        console.log(`[DEDUCT_STORE] Item: ${item}, Row: ${storeRowIndex + 2}, Old: ${storeStock}, New: ${newStore}, Cell: ${storeCell}`);
 
         await gsapi.spreadsheets.values.update({
           spreadsheetId: STORE_SHEET_ID,
-          range: `${escapeSheetName(item)}!C${storeRowIndex + 2}`,
+          range: storeCell,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[newStore]] },
         });
@@ -363,29 +401,44 @@ async function deductAllItemsStock(
 
       // STEP 2: Fallback to Loft (if needed)
       if (remaining > 0 && loftRowIndex !== -1) {
+        console.log(`[FALLBACK_START] Item: ${item}, Shade: ${shade}, RemainingNeeded: ${remaining}, LoftIndiv: ${loftIndividuals}, LoftPkts: ${loftPackets}, PktSize: ${packetSize}`);
+
         // STEP 2a: Use individual balls FIRST
         usedLoftIndividuals = Math.min(remaining, loftIndividuals);
-        let newIndiv = loftIndividuals - usedLoftIndividuals;
+        let newIndiv = Math.max(0, loftIndividuals - usedLoftIndividuals);  // Ensure no negative
         let newPackets = loftPackets;
         remaining -= usedLoftIndividuals;
 
+        console.log(`[FALLBACK_INDIV] Item: ${item}, Used: ${usedLoftIndividuals}, Remaining After Indiv: ${remaining}, NewIndiv: ${newIndiv}`);
+
         // STEP 2b: Open packets ONLY if individual balls insufficient
-        if (remaining > 0 && loftPackets > 0) {
+        if (remaining > 0 && loftPackets > 0 && packetSize > 0) {
           const needPackets = Math.ceil(remaining / packetSize);
           packetsOpened = Math.min(needPackets, loftPackets);
           const ballsFromPackets = packetsOpened * packetSize;
-          newPackets = loftPackets - packetsOpened;
+          newPackets = Math.max(0, loftPackets - packetsOpened);  // Ensure no negative
           
-          // Preserve leftover balls from opened packets
-          leftoverBalls = ballsFromPackets - remaining;
+          // CRITICAL: Calculate leftover correctly
+          // If we open 2 packets of size 6 = 12 balls, but only need 8, leftover = 4
+          const usedFromPackets = Math.min(remaining, ballsFromPackets);
+          leftoverBalls = ballsFromPackets - usedFromPackets;
           newIndiv = leftoverBalls;
-          remaining = 0;
+          remaining -= usedFromPackets;
+
+          console.log(`[FALLBACK_PACKETS] Item: ${item}, PktsOpened: ${packetsOpened}, BallsFromPkts: ${ballsFromPackets}, UsedFromPkts: ${usedFromPackets}, Leftover: ${leftoverBalls}, NewPkts: ${newPackets}`);
+        }
+
+        if (remaining > 0) {
+          console.error(`[FALLBACK_ERROR] Item: ${item} STILL HAS REMAINING: ${remaining}! Data inconsistency!`);
         }
 
         // Update Loft stock
+        const loftRange = `${escapeSheetName(item)}!E${loftRowIndex + 2}:F${loftRowIndex + 2}`;
+        console.log(`[DEDUCT_LOFT] Item: ${item}, Row: ${loftRowIndex + 2}, OldIndiv: ${loftIndividuals}, NewIndiv: ${newIndiv}, OldPkts: ${loftPackets}, NewPkts: ${newPackets}, Range: ${loftRange}`);
+
         await gsapi.spreadsheets.values.update({
           spreadsheetId: LOFT_SHEET_ID,
-          range: `${escapeSheetName(item)}!E${loftRowIndex + 2}:F${loftRowIndex + 2}`,
+          range: loftRange,
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [[newIndiv, newPackets]] },
         });
@@ -398,6 +451,7 @@ async function deductAllItemsStock(
       // STEP 3: Log Loft fallback with detailed source breakdown
       const totalFromLoft = usedLoftIndividuals + (packetsOpened * packetSize);
       if (totalFromLoft > 0) {
+        console.log(`[FALLBACK_LOG] Item: ${item}, Shade: ${shade}, Total: ${totalFromLoft}, Indiv: ${usedLoftIndividuals}, Pkts: ${packetsOpened}, Leftover: ${leftoverBalls}`);
         applied.set(`${item}|${shade}|loftLog`, { 
           item, 
           shade, 
@@ -408,7 +462,10 @@ async function deductAllItemsStock(
           packetSize: packetSize,
         });
       }
+
+      console.log(`[DEDUCT_COMPLETE] Item: ${item}, Shade: ${shade}, Total Used: ${usedStore + totalFromLoft}`);
     } catch (err) {
+      console.error(`[DEDUCT_FAIL] Item: ${item}, Shade: ${shade}, Error: ${(err as any).message}`);
       throw new Error(`stock deduction failed for ${item} ${shade}: ${(err as any).message}`);
     }
   }
@@ -589,6 +646,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return res.status(400).json({ error: "no rows to delete" });
         }
 
+        // Get Loft fallback log for this bill to properly restore Loft stock
+        const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
+        console.log(`[EDIT_RESTORE_START] Retrieved ${fallbackLog.length} fallback log entries for bill ${originalBillNo}`);
+
         // reverse old stock
         for (const row of oldRows) {
           const itemName = row[1];
@@ -596,6 +657,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const qty = Number(row[3]) || 0;
           if (!itemName || !shadeName || qty === 0) continue;
 
+          // STEP 1: Restore Hook stock
           const storeRes = await gsapi.spreadsheets.values.get({
             spreadsheetId: STORE_SHEET_ID,
             range: `${escapeSheetName(itemName)}!B2:C`,
@@ -610,23 +672,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               valueInputOption: "USER_ENTERED",
               requestBody: { values: [[curr + qty]] },
             });
+            console.log(`[EDIT_RESTORE_HOOK] Item: ${itemName}, Shade: ${shadeName}, Restored: ${qty}`);
           }
 
-          const loftRes = await gsapi.spreadsheets.values.get({
-            spreadsheetId: LOFT_SHEET_ID,
-            range: `${escapeSheetName(itemName)}!A2:L`,
-          });
-          const loftRows = loftRes.data.values || [];
-          const loftIdx = loftRows.findIndex(r => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase());
-          if (loftIdx !== -1) {
-            const currIndiv = Number(loftRows[loftIdx][4]) || 0;
-            const currPackets = Number(loftRows[loftIdx][5]) || 0;
-            await gsapi.spreadsheets.values.update({
+          // STEP 2: Restore Loft fallback stock (ONLY if it was actually used as fallback)
+          // Check if this item was in the Loft Fallback Log
+          const fallbackEntry = fallbackLog.find(
+            (log: any) => 
+              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
+              log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
+          );
+
+          if (fallbackEntry) {
+            // This item used Loft fallback - restore properly!
+            const individualsUsed = Number(fallbackEntry[5]) || 0;
+            const packetsOpened = Number(fallbackEntry[6]) || 0;
+            const leftoverBalls = Number(fallbackEntry[7]) || 0;
+            const packetSize = Number(fallbackEntry[8]) || 0;
+
+            const loftRes = await gsapi.spreadsheets.values.get({
               spreadsheetId: LOFT_SHEET_ID,
-              range: `${escapeSheetName(itemName)}!E${loftIdx + 2}:F${loftIdx + 2}`,
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[currIndiv + qty, currPackets]] },
+              range: `${escapeSheetName(itemName)}!A2:L`,
             });
+            const loftRows = loftRes.data.values || [];
+            const loftIdx = loftRows.findIndex(r => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase());
+            
+            if (loftIdx !== -1) {
+              const currIndiv = Number(loftRows[loftIdx][4]) || 0;
+              const currPackets = Number(loftRows[loftIdx][5]) || 0;
+              
+              // CRITICAL: Restore individuals and packets separately
+              // Only restore the leftover balls to individuals, not the original qty
+              const restoredIndiv = currIndiv + leftoverBalls;
+              const restoredPackets = currPackets + packetsOpened;
+              
+              await gsapi.spreadsheets.values.update({
+                spreadsheetId: LOFT_SHEET_ID,
+                range: `${escapeSheetName(itemName)}!E${loftIdx + 2}:F${loftIdx + 2}`,
+                valueInputOption: "USER_ENTERED",
+                requestBody: { values: [[restoredIndiv, restoredPackets]] },
+              });
+              console.log(`[EDIT_RESTORE_LOFT_FALLBACK] Item: ${itemName}, Shade: ${shadeName}, RestIndiv: ${restoredIndiv}, RestPkts: ${restoredPackets}, OrigIndiv: ${individualsUsed}, OrigPkts: ${packetsOpened}`);
+            }
+          } else {
+            // This item did NOT use Loft fallback - just restore as simple individuals
+            const loftRes = await gsapi.spreadsheets.values.get({
+              spreadsheetId: LOFT_SHEET_ID,
+              range: `${escapeSheetName(itemName)}!A2:L`,
+            });
+            const loftRows = loftRes.data.values || [];
+            const loftIdx = loftRows.findIndex(r => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase());
+            if (loftIdx !== -1) {
+              const currIndiv = Number(loftRows[loftIdx][4]) || 0;
+              const currPackets = Number(loftRows[loftIdx][5]) || 0;
+              // Only add as individuals since it was never a fallback usage
+              await gsapi.spreadsheets.values.update({
+                spreadsheetId: LOFT_SHEET_ID,
+                range: `${escapeSheetName(itemName)}!E${loftIdx + 2}:F${loftIdx + 2}`,
+                valueInputOption: "USER_ENTERED",
+                requestBody: { values: [[currIndiv + qty, currPackets]] },
+              });
+              console.log(`[EDIT_RESTORE_LOFT_NOFALL] Item: ${itemName}, Shade: ${shadeName}, RestoredIndiv: ${currIndiv + qty}`);
+            }
           }
         }
 
@@ -660,8 +767,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // validate new items stock
         const validations = await validateAllItemsStock(gsapi, items);
+        console.log(`[EDIT_VALIDATE_STOCK] ${validations.length} items validated for edit`);
+        
         const failed = validations.find(v => !v.isValid);
         if (failed) {
+          console.error(`[EDIT_VALIDATE_FAILED] Item: ${failed.item}, Error: ${failed.errorMessage}`);
           return res.status(400).json({ error: failed.errorMessage });
         }
 
@@ -683,9 +793,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           });
         const applied = await deductAllItemsStock(gsapi, ops);
 
+        // Collect fallback usage for edit toast notifications
+        const fallbackUsage: Array<{ item: string; shade: string; individualsUsed: number; packetsOpened: number }> = [];
+        
         // Log Loft fallback for edit flow as well
         for (const [key, op] of applied) {
           if (key.includes("loftLog")) {
+            console.log(`[EDIT_FALLBACK_LOG] Found loftLog entry: ${key}`);
+            fallbackUsage.push({
+              item: op.item,
+              shade: op.shade,
+              individualsUsed: op.individualsUsed,
+              packetsOpened: op.packetsOpened,
+            });
             await logLoftFallback(
               gsapi, 
               originalBillNo, 
@@ -697,7 +817,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               op.leftoverBalls,
               op.packetSize,
               timestamp
-            ).catch(console.error);
+            ).catch(err => console.error(`[EDIT_FALLBACK_LOG_ERROR] Error: ${err.message}`));
           }
         }
 
@@ -839,7 +959,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           requestBody: { values: newRows },
         });
 
-        return res.status(200).json({ success: true, billNo: originalBillNo });
+        return res.status(200).json({ success: true, billNo: originalBillNo, fallbackUsage });
       }
 
       // normal new bill
@@ -882,8 +1002,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await ensureBillSheetColumns(gsapi);
 
       const validations = await validateAllItemsStock(gsapi, items);
+      console.log(`[VALIDATE_STOCK] ${validations.length} items validated`);
+      
       const failed = validations.find(v => !v.isValid);
       if (failed) {
+        console.error(`[VALIDATE_FAILED] Item: ${failed.item}, Error: ${failed.errorMessage}`);
         return res.status(400).json({ error: failed.errorMessage });
       }
 
@@ -904,6 +1027,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           };
         });
 
+      console.log(`[DEDUCT_OPS] Created ${ops.length} deduction operations`);
+
       let applied = new Map();
       try {
         applied = await deductAllItemsStock(gsapi, ops);
@@ -919,8 +1044,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "stock deduction failed" });
       }
 
+      // Collect fallback usage for toast notifications
+      const fallbackUsage: Array<{ item: string; shade: string; individualsUsed: number; packetsOpened: number }> = [];
       for (const [key, op] of applied) {
         if (key.includes("loftLog")) {
+          console.log(`[SAVE_FALLBACK_LOG] Found loftLog entry: ${key}`);
+          fallbackUsage.push({
+            item: op.item,
+            shade: op.shade,
+            individualsUsed: op.individualsUsed,
+            packetsOpened: op.packetsOpened,
+          });
           await logLoftFallback(
             gsapi, 
             billNo, 
@@ -932,7 +1066,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             op.leftoverBalls,
             op.packetSize,
             timestamp
-          ).catch(console.error);
+          ).catch(err => console.error(`[SAVE_FALLBACK_LOG_ERROR] Error: ${err.message}`));
         }
       }
 
@@ -1073,7 +1207,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         requestBody: { values: billRows },
       });
 
-      return res.status(200).json({ success: true, billNo, customerId });
+      return res.status(200).json({ success: true, billNo, customerId, fallbackUsage });
     }
 
     res.status(405).json({ error: "method not allowed" });

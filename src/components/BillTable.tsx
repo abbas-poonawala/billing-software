@@ -149,7 +149,7 @@ export default function BillTable({ shadeCache }: Props) {
           </td>
 
           {/* Price */}
-          <td style={{ ...td, textAlign: "right", paddingRight: 20 }}>
+          <td style={{ ...td, textAlign: "right", paddingRight: 10 }}>
             <EditableCell
               value={`₹${formatPrice(item.price)}`}
               onSave={val => {
@@ -173,7 +173,7 @@ export default function BillTable({ shadeCache }: Props) {
           </td>
 
           {/* Total */}
-          <td style={{ ...td, textAlign: "right", fontWeight: 700, paddingRight: 20 }}>
+          <td style={{ ...td, textAlign: "right", fontWeight: 700, paddingRight: 10 }}>
             ₹{formatPrice(item.total)}
           </td>
 

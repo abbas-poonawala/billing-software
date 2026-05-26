@@ -505,15 +505,15 @@ export default function App() {
         paymentMode={store.paymentMode}
       >
         {/* augmented table with live editing controls */}
-        <table className="bill-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10, border: "1px solid #0f172a" }}>
+        <table className="bill-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4, border: "1px solid #0f172a" }}>
           <thead>
             <tr style={{ backgroundColor: "#f0f1f3" }}>
               <th style={{ ...styles.th, width: "5%", textAlign: "center" }}>#</th>
               <th style={{ ...styles.th, width: "30%" }}>Item</th>
               <th style={{ ...styles.th, width: "28%" }}>Shade</th>
               <th style={{ ...styles.th, width: "10%", textAlign: "center" }}>Qty</th>
-              <th style={{ ...styles.th, width: "12%", textAlign: "right", paddingRight: 20 }}>Price</th>
-              <th style={{ ...styles.th, width: "13%", textAlign: "right", paddingRight: 20 }}>Total</th>
+              <th style={{ ...styles.th, width: "12%", textAlign: "right", paddingRight: 10 }}>Price</th>
+              <th style={{ ...styles.th, width: "13%", textAlign: "right", paddingRight: 10 }}>Total</th>
               <th className="no-print" style={{ ...styles.th, width: "2%" }}></th>
             </tr>
           </thead>
@@ -697,6 +697,6 @@ button:active:not(:disabled) { transform: translateY(0); }
   .print-only { display: inline !important; }
   html, body { margin: 0; padding: 0; background: white; }
   .app-container { background: white; box-shadow: none; margin: 0; padding: 0; }
-  #print-bill { width: 100%; border: 1.5px solid #000 !important; box-shadow: none; border-radius: 0; padding: 16px 20px; box-sizing: border-box; }
+  #print-bill { width: 100%; border: 1.5px solid #000 !important; box-shadow: none; border-radius: 0; padding: 12px 16px; box-sizing: border-box; }
 }
 `;

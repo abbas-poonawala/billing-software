@@ -532,7 +532,9 @@ export default function App() {
       </div>
 
       {/* customer section */}
-      <CustomerSection />
+      <div className="no-print">
+        <CustomerSection />
+      </div>
 
       {/* action buttons */}
       <div className="no-print" style={styles.actions}>

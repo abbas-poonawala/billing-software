@@ -120,6 +120,10 @@ async function logLoftFallback(
   item: string,
   shade: string,
   qtyFromLoft: number,
+  individualsUsed: number,
+  packetsOpened: number,
+  leftoverBalls: number,
+  packetSize: number,
   timestamp: string
 ) {
   try {
@@ -137,17 +141,17 @@ async function logLoftFallback(
       });
       await gsapi.spreadsheets.values.update({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Loft Fallback Log!A1:F1",
+        range: "Loft Fallback Log!A1:I1",
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [["Timestamp", "Bill No", "Item", "Shade", "Qty From Loft", "Date"]] }
+        requestBody: { values: [["Timestamp", "Bill No", "Item", "Shade", "Total From Loft", "Individual Balls Used", "Packets Opened", "Leftover Balls", "Packet Size"]] }
       });
     }
     await gsapi.spreadsheets.values.append({
       spreadsheetId: STORE_SHEET_ID,
-      range: "Loft Fallback Log!A:F",
+      range: "Loft Fallback Log!A:I",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[timestamp, billNo, item, shade, qtyFromLoft, new Date().toLocaleDateString("en-IN")]],
+        values: [[timestamp, billNo, item, shade, qtyFromLoft, individualsUsed, packetsOpened, leftoverBalls, packetSize]],
       },
     });
   } catch (err) {
@@ -329,8 +333,11 @@ async function deductAllItemsStock(
     try {
       let remaining = deductionQty;
       let usedStore = 0;
-      let usedLoft = 0;
+      let usedLoftIndividuals = 0;
+      let packetsOpened = 0;
+      let leftoverBalls = 0;
 
+      // STEP 1: Deduct from Store
       if (storeRowIndex !== -1) {
         usedStore = Math.min(remaining, storeStock);
         const newStore = storeStock - usedStore;
@@ -354,22 +361,28 @@ async function deductAllItemsStock(
         });
       }
 
+      // STEP 2: Fallback to Loft (if needed)
       if (remaining > 0 && loftRowIndex !== -1) {
-        const useIndiv = Math.min(remaining, loftIndividuals);
-        let newIndiv = loftIndividuals - useIndiv;
+        // STEP 2a: Use individual balls FIRST
+        usedLoftIndividuals = Math.min(remaining, loftIndividuals);
+        let newIndiv = loftIndividuals - usedLoftIndividuals;
         let newPackets = loftPackets;
-        remaining -= useIndiv;
+        remaining -= usedLoftIndividuals;
 
-        if (remaining > 0) {
+        // STEP 2b: Open packets ONLY if individual balls insufficient
+        if (remaining > 0 && loftPackets > 0) {
           const needPackets = Math.ceil(remaining / packetSize);
-          const openPackets = Math.min(needPackets, loftPackets);
-          const ballsFromPackets = openPackets * packetSize;
-          newPackets = loftPackets - openPackets;
-          newIndiv += ballsFromPackets - remaining;
+          packetsOpened = Math.min(needPackets, loftPackets);
+          const ballsFromPackets = packetsOpened * packetSize;
+          newPackets = loftPackets - packetsOpened;
+          
+          // Preserve leftover balls from opened packets
+          leftoverBalls = ballsFromPackets - remaining;
+          newIndiv = leftoverBalls;
           remaining = 0;
         }
 
-        usedLoft = qty - usedStore;
+        // Update Loft stock
         await gsapi.spreadsheets.values.update({
           spreadsheetId: LOFT_SHEET_ID,
           range: `${escapeSheetName(item)}!E${loftRowIndex + 2}:F${loftRowIndex + 2}`,
@@ -382,8 +395,18 @@ async function deductAllItemsStock(
         });
       }
 
-      if (usedLoft > 0) {
-        applied.set(`${item}|${shade}|loftLog`, { item, shade, usedLoft });
+      // STEP 3: Log Loft fallback with detailed source breakdown
+      const totalFromLoft = usedLoftIndividuals + (packetsOpened * packetSize);
+      if (totalFromLoft > 0) {
+        applied.set(`${item}|${shade}|loftLog`, { 
+          item, 
+          shade, 
+          qtyFromLoft: totalFromLoft,
+          individualsUsed: usedLoftIndividuals,
+          packetsOpened: packetsOpened,
+          leftoverBalls: leftoverBalls,
+          packetSize: packetSize,
+        });
       }
     } catch (err) {
       throw new Error(`stock deduction failed for ${item} ${shade}: ${(err as any).message}`);
@@ -658,7 +681,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               timestamp,
             };
           });
-        await deductAllItemsStock(gsapi, ops);
+        const applied = await deductAllItemsStock(gsapi, ops);
+
+        // Log Loft fallback for edit flow as well
+        for (const [key, op] of applied) {
+          if (key.includes("loftLog")) {
+            await logLoftFallback(
+              gsapi, 
+              originalBillNo, 
+              op.item, 
+              op.shade, 
+              op.qtyFromLoft,
+              op.individualsUsed,
+              op.packetsOpened,
+              op.leftoverBalls,
+              op.packetSize,
+              timestamp
+            ).catch(console.error);
+          }
+        }
 
         let newCustomerId = "";
         try {
@@ -880,7 +921,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       for (const [key, op] of applied) {
         if (key.includes("loftLog")) {
-          await logLoftFallback(gsapi, billNo, op.item, op.shade, op.usedLoft, timestamp).catch(console.error);
+          await logLoftFallback(
+            gsapi, 
+            billNo, 
+            op.item, 
+            op.shade, 
+            op.qtyFromLoft,
+            op.individualsUsed,
+            op.packetsOpened,
+            op.leftoverBalls,
+            op.packetSize,
+            timestamp
+          ).catch(console.error);
         }
       }
 

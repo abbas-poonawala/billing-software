@@ -26,6 +26,7 @@ export function useItemSearch() {
   const {
     entryItem, entryShade,
     setEntryPrice, setEntryCost,
+    showToast,
   } = useBillingStore();
 
   // load all items
@@ -69,7 +70,7 @@ export function useItemSearch() {
   }, [entryItem, entryShade, allItems]);
 
   // load price when item+shade changes
-  const [warnedKey, setWarnedKey] = useState<string | null>(null);
+  const warnedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!entryItem || !entryShade) return;
     if (!allItems.includes(entryItem) || !shades.includes(entryShade)) return;
@@ -79,9 +80,9 @@ export function useItemSearch() {
     if (priceCache.current[key]) {
       setEntryPrice(String(priceCache.current[key].price));
       const stock = priceCache.current[key].qty;
-      if (stock >= 0 && stock < 2 && warnedKey !== key) {
-        window.alert("Low stock for this shade. Check sheet.");
-        setWarnedKey(key);
+      if (stock >= 0 && stock < 2 && warnedKey.current !== key) {
+        showToast(`Low stock for ${entryItem} ${entryShade}`, "info");
+        warnedKey.current = key;
       }
       return;
     }
@@ -89,9 +90,9 @@ export function useItemSearch() {
     fetchPrice(entryItem, entryShade).then(({ price, qty }) => {
       priceCache.current[key] = { price, qty };
       setEntryPrice(String(price));
-      if (qty >= 0 && qty < 2 && warnedKey !== key) {
-        window.alert("Low stock for this shade. Check sheet.");
-        setWarnedKey(key);
+      if (qty >= 0 && qty < 2 && warnedKey.current !== key) {
+        showToast(`Low stock for ${entryItem} ${entryShade}`, "info");
+        warnedKey.current = key;
       }
     });
   }, [entryItem, entryShade, shades, allItems]);
@@ -139,6 +140,7 @@ export function useItemSearch() {
   const clearCaches = () => {
     priceCache.current = {};
     shadeCache.current = {};
+    warnedKey.current = null;
     sessionStorage.removeItem(ALL_ITEMS_KEY);
     setAllItems([]);
     setShades([]);

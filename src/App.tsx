@@ -11,6 +11,7 @@ src/utils/                  [pure functions]
 
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
+import { Toaster } from "sonner";
 import { useBillingStore, useBillTotals, useDisplayBillMeta } from "./store/billingStore";
 import { useBillDraft } from "./hooks/useBillDraft";
 import { useItemSearch } from "./hooks/useItemSearch";
@@ -87,7 +88,6 @@ export default function App() {
   // local ui area
   const [barcode, setBarcode] = useState("");
   const [barcodeLoading, setBarcodeLoading] = useState(false);
-  const [printPreview, setPrintPreview] = useState(false);
   const [restockLoading, setRestockLoading] = useState(false);
   const [showBillRetrieval, setShowBillRetrieval] = useState(false);
   const [billSearchNo, setBillSearchNo] = useState("");
@@ -131,13 +131,6 @@ export default function App() {
       fetchPointsConfig().then(store.setPointsConfig)
     );
   }, []);
-
-  // toast dismiss
-  useEffect(() => {
-    if (!store.toast) return;
-    const t = setTimeout(store.dismissToast, 3500);
-    return () => clearTimeout(t);
-  }, [store.toast]);
 
   // derived phone no
   const isPhoneValid = isValidPhone(store.phone);
@@ -349,45 +342,16 @@ export default function App() {
   };
 
   // keyboard
-  useKeyboardShortcuts(
-    { itemRef, shadeRef, qtyRef, priceRef, barcodeRef },
-    {
-      onAddItem: () => addItem(false),
-      onSaveBill: saveBill,
-      onSaveBillAndSend: saveBillAndSend,
-      onBarcodeSubmit: handleBarcodeScan,
-      onAcceptItemSuggestion: () => {
-        if (search.itemSuggestion) {
-          store.setEntryItem(search.itemSuggestion);
-          setTimeout(() => (search.isStandard ? qtyRef.current : shadeRef.current)?.focus(), 50);
-        }
-      },
-      onAcceptShadeSuggestion: () => {
-        if (search.shadeSuggestion) {
-          store.setEntryShade(search.shadeSuggestion);
-          setTimeout(() => qtyRef.current?.focus(), 50);
-        }
-      },
-      hasItemSuggestion: Boolean(search.itemSuggestion && store.entryItem !== search.itemSuggestion),
-      hasShadeSuggestion: Boolean(search.shadeSuggestion && store.entryShade !== search.shadeSuggestion && !search.allShadesNumeric),
-      isStandard: search.isStandard,
-    }
-  );
+  useKeyboardShortcuts({
+    onSaveBill: saveBill,
+    onSaveBillAndSend: saveBillAndSend,
+  });
 
   // rendering
   return (
     <div style={styles.container}>
       <style>{globalStyles}</style>
-
-      {/* Toast */}
-      {store.toast && (
-        <div style={{
-          ...styles.toast,
-          background: store.toast.type === "success" ? "#10b981" : store.toast.type === "error" ? "#ef4444" : "#3b82f6",
-        }}>
-          {store.toast.message}
-        </div>
-      )}
+      <Toaster richColors position="top-right" closeButton />
 
       {/* delete confirm */}
       {store.deleteConfirmIdx !== null && (
@@ -419,6 +383,7 @@ export default function App() {
             type="text"
             value={barcode}
             onChange={e => setBarcode(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleBarcodeScan(); } }}
             placeholder="Scan Barcode..."
             style={styles.input}
             disabled={barcodeLoading}
@@ -555,7 +520,6 @@ export default function App() {
         <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => setShowBillRetrieval(v => !v)}>🔍 Retrieve Bill</button>
         <button style={{ ...styles.actionBtn, background: "#22e6ae" }} onClick={generateStoreRestock} disabled={restockLoading}>📋 Store Restock</button>
         <button style={{ ...styles.actionBtn, background: "#25D366" }} onClick={sendWhatsApp} disabled={!isPhoneValid || store.items.length === 0}>📲 Send Bill</button>
-        <button style={styles.actionBtn} onClick={() => setPrintPreview(true)}>👁 Preview</button>
         <button style={styles.actionBtn} onClick={() => window.print()}>🖨 Print</button>
         <button
           style={{ ...styles.actionBtn, opacity: store.savingProgress || store.items.length === 0 || !isPhoneValid ? 0.6 : 1 }}
@@ -580,7 +544,13 @@ export default function App() {
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🔍 Retrieve Previous Bill</h3>
             <button onClick={() => setShowBillRetrieval(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#666" }}>✕</button>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              retrieveBill(Number(billSearchNo));
+            }}
+            style={{ display: "flex", gap: 8 }}
+          >
             <input
               type="number"
               min="1"
@@ -590,13 +560,13 @@ export default function App() {
               style={{ flex: 1, padding: "8px 10px", fontSize: 13, border: "1px solid #cbd5e1", borderRadius: 4, outline: "none" }}
             />
             <button
-              onClick={() => retrieveBill(Number(billSearchNo))}
+              type="submit"
               disabled={billRetrievalLoading}
               style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, background: billRetrievalLoading ? "#ccc" : "#8b5cf6", color: "#fff", border: "none", borderRadius: 4, cursor: billRetrievalLoading ? "not-allowed" : "pointer" }}
             >
               {billRetrievalLoading ? "⏳" : "Search"}
             </button>
-          </div>
+          </form>
           {retrievedBill && (
             <div style={{ marginTop: 12, padding: 12, background: "#f9fafb", borderRadius: 4, fontSize: 13 }}>
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Bill #{retrievedBill.billNo}</div>
@@ -628,37 +598,6 @@ export default function App() {
           )}
         </div>
       )}
-
-      {/* print preview modal */}
-      {printPreview && (
-        <div style={styles.overlay} onClick={() => setPrintPreview(false)}>
-          <div style={styles.previewModal} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #e2e8f0" }}>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Print Preview</h2>
-              <button onClick={() => setPrintPreview(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer" }}>✕</button>
-            </div>
-            <div style={{ flex: 1, overflow: "auto", padding: 20, background: "#f8f9fb" }}>
-              <PrintBill
-                items={store.items}
-                customerName={store.customerName}
-                phone={store.phone}
-                customer={store.customer}
-                billNo={displayBillNo}
-                billDate={displayBillDate}
-                billTime={displayBillTime}
-                courierCharges={totals.subtotalWithCourier - totals.grandTotal}
-                gpayCharges={totals.gpayCharge}
-                finalTotal={totals.finalTotal}
-                paymentMode={store.paymentMode}
-              />
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 20px", borderTop: "1px solid #e2e8f0" }}>
-              <button style={styles.button} onClick={() => window.print()}>🖨 Print</button>
-              <button style={styles.button} onClick={() => setPrintPreview(false)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -679,7 +618,6 @@ const styles: Record<string, React.CSSProperties> = {
   modal: { background: "#fff", padding: 24, borderRadius: 0, boxShadow: "0 10px 40px rgba(0,0,0,0.2)", maxWidth: 400 },
   cancelBtn: { padding: "10px 18px", fontSize: 12, fontWeight: 700, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#334155", cursor: "pointer", borderRadius: 0 },
   deleteBtn: { padding: "10px 18px", fontSize: 12, fontWeight: 700, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", borderRadius: 0 },
-  previewModal: { background: "#fff", borderRadius: 8, boxShadow: "0 10px 40px rgba(0,0,0,0.2)", width: "90%", maxWidth: 600, maxHeight: "90vh", display: "flex", flexDirection: "column" },
 };
 
 const globalStyles = `

@@ -10,6 +10,7 @@
  */
 
 import { create } from "zustand";
+import { toast as sonnerToast } from "sonner";
 import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig, Toast } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
 
@@ -238,8 +239,16 @@ function actions(set: any, get: any) {
     setSavingProgress: (savingProgress: boolean) => set({ savingProgress }),
     setSelectedRow: (selectedRow: number | null) => set({ selectedRow }),
 
-    showToast: (message: string, type: Toast["type"]) => set({ toast: { message, type } }),
-    dismissToast: () => set({ toast: null }),
+    showToast: (message: string, type: Toast["type"]) => {
+      set({ toast: { message, type } });
+      if (type === "success") sonnerToast.success(message);
+      else if (type === "error") sonnerToast.error(message);
+      else sonnerToast.info(message);
+    },
+    dismissToast: () => {
+      set({ toast: null });
+      sonnerToast.dismiss();
+    },
 
     confirmDelete: (deleteConfirmIdx: number) => set({ deleteConfirmIdx }),
     cancelDelete: () => set({ deleteConfirmIdx: null }),

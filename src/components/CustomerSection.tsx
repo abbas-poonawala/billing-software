@@ -39,6 +39,12 @@ export default function CustomerSection() {
   const [searching, setSearching] = React.useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const customerLabelMap = React.useMemo(() => {
+    return new Map(
+      searchResults.map(c => [`${c.customerId} — ${c.name}`, c])
+    );
+  }, [searchResults]);
+
   const selectCustomer = (cust: Customer) => {
     setCustomer(cust);
     setCustomerName(cust.name);
@@ -143,14 +149,14 @@ export default function CustomerSection() {
           value={customerName}
           onChange={handleNameChange}
           onSelect={opt => {
-            const c = searchResults.find(r => r.name === opt);
+            const c = customerLabelMap.get(opt);
             if (c) selectCustomer(c);
           }}
           options={searchResults.map(r => `${r.customerId} — ${r.name}`)}
           placeholder="Search Customer Name..."
           style={si}
           renderOption={(opt, highlighted) => {
-            const c = searchResults.find(r => `${r.customerId} — ${r.name}` === opt);
+            const c = customerLabelMap.get(opt);
             return (
               <div style={{ padding: "10px 12px", borderBottom: "1px solid #f0f0f0", background: highlighted ? "#f0f4f8" : "#fff" }}>
                 <div style={{ fontWeight: 600, color: "#0f172a", fontSize: 13 }}>{c?.customerId} — {c?.name}</div>

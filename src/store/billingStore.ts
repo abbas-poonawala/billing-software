@@ -7,11 +7,11 @@
  * - editedPrice is tracked separately from originalPrice (fixes the revert bug)
  * - updateItems always goes through applyAllPricingRules
  * - Selectors kept in store for easy memoization
+ * - Toast notifications delegated to Sonner (removed dual state)
  */
 
 import { create } from "zustand";
-import { toast as sonnerToast } from "sonner";
-import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig, Toast } from "../types";
+import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
 
 //start of billing store code
@@ -53,7 +53,6 @@ interface BillingState {
   saving: boolean;
   savingProgress: boolean;
   selectedRow: number | null;
-  toast: Toast | null;
   deleteConfirmIdx: number | null;
   lastDeletedItem: BillItem | null;
   lastDeletedIdx: number | null;
@@ -96,8 +95,6 @@ interface BillingState {
   setSaving: (v: boolean) => void;
   setSavingProgress: (v: boolean) => void;
   setSelectedRow: (v: number | null) => void;
-  showToast: (msg: string, type: Toast["type"]) => void;
-  dismissToast: () => void;
   confirmDelete: (idx: number) => void;
   cancelDelete: () => void;
 
@@ -137,7 +134,6 @@ const INITIAL: Omit<BillingState, keyof ReturnType<typeof actions>> = {
   saving: false,
   savingProgress: false,
   selectedRow: null,
-  toast: null,
   deleteConfirmIdx: null,
   lastDeletedItem: null,
   lastDeletedIdx: null,
@@ -238,17 +234,6 @@ function actions(set: any, get: any) {
     setSaving: (saving: boolean) => set({ saving }),
     setSavingProgress: (savingProgress: boolean) => set({ savingProgress }),
     setSelectedRow: (selectedRow: number | null) => set({ selectedRow }),
-
-    showToast: (message: string, type: Toast["type"]) => {
-      set({ toast: { message, type } });
-      if (type === "success") sonnerToast.success(message);
-      else if (type === "error") sonnerToast.error(message);
-      else sonnerToast.info(message);
-    },
-    dismissToast: () => {
-      set({ toast: null });
-      sonnerToast.dismiss();
-    },
 
     confirmDelete: (deleteConfirmIdx: number) => set({ deleteConfirmIdx }),
     cancelDelete: () => set({ deleteConfirmIdx: null }),

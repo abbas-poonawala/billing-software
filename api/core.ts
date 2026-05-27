@@ -96,6 +96,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleGetCost(gsapi, req, res);
       case "getBoxPrice":
         return await handleGetBoxPrice(gsapi, req, res);
+      case "getPointsConfig":
+        return await handleGetPointsConfig(gsapi, res);
       case "getCustomer":
         return await handleGetCustomer(gsapi, req, res);
       case "searchCustomersByName":
@@ -451,5 +453,59 @@ async function handleGetBoxPrice(gsapi: any, req: VercelRequest, res: VercelResp
   } catch (err: any) {
     console.error(err);
     return res.status(500).json({ error: "Failed to fetch box price" });
+  }
+}
+
+/**
+ * Get points configuration (earn/redeem rates)
+ * Reads from Settings sheet or uses defaults
+ * This was a missing backend feature that frontend was calling
+ */
+async function handleGetPointsConfig(gsapi: any, res: VercelResponse) {
+  try {
+    console.log("[GET_POINTS_CONFIG] Fetching points configuration");
+    
+    const response = await gsapi.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "Settings!A2:B20",
+    });
+
+    const rows = response.data.values || [];
+    
+    // Parse settings from rows with format: [key, value]
+    const config: Record<string, number> = {};
+    for (const row of rows) {
+      const key = (row[0] || "").toString().trim().toLowerCase();
+      const value = Number(row[1]) || 0;
+      
+      if (key.includes("earn")) config.earnRate = value;
+      if (key.includes("redeem")) config.redeemRate = value;
+      if (key.includes("min")) config.minRedeem = value;
+    }
+
+    // Fallback to defaults if not found
+    const earnRate = config.earnRate || 5; // 5 points per 100 rupees
+    const redeemRate = config.redeemRate || 10; // 10 rupees per point
+    const minRedeem = config.minRedeem || 100; // minimum 100 points
+
+    console.log(`[GET_POINTS_CONFIG] Loaded: earn=${earnRate}, redeem=${redeemRate}, min=${minRedeem}`);
+    
+    return res.status(200).json({
+      config: {
+        earnRate,
+        redeemRate,
+        minRedeem,
+      },
+    });
+  } catch (err: any) {
+    console.error(`[GET_POINTS_CONFIG_ERROR] ${err.message}`);
+    // Return safe defaults on error
+    return res.status(200).json({
+      config: {
+        earnRate: 5,
+        redeemRate: 10,
+        minRedeem: 100,
+      },
+    });
   }
 }

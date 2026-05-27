@@ -14,6 +14,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import Fuse from "fuse.js";
 import { fetchItems, fetchShades, fetchPrice, fetchCost } from "../services/api";
 import { useBillingStore } from "../store/billingStore";
+import { showToast } from "../utils/toast";
 
 const ALL_ITEMS_KEY = "allItems";
 
@@ -26,7 +27,6 @@ export function useItemSearch() {
   const {
     entryItem, entryShade,
     setEntryPrice, setEntryCost,
-    showToast,
   } = useBillingStore();
 
   // load all items

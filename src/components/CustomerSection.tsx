@@ -12,6 +12,7 @@ import { useBillingStore } from "../store/billingStore";
 import SearchDropdown from "./SearchDropdown";
 import { searchCustomersByName, searchCustomersByPhone, searchCustomersById } from "../services/api";
 import { formatPrice } from "../utils/formatting";
+import { showToast } from "../utils/toast";
 import type { Customer } from "../types";
 import { computePointsValue } from "../pricing/resolver";
 
@@ -32,7 +33,6 @@ export default function CustomerSection() {
     redeemPoints, courierCharges, pointsConfig,
     setCustomer, setCustomerName, setPhone, setPhone2,
     setCustomerType, setPaymentMode, setRedeemPoints, setCourierCharges,
-    showToast,
   } = useBillingStore();
 
   const [searchResults, setSearchResults] = React.useState<Customer[]>([]);

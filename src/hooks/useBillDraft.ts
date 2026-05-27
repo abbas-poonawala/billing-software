@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import { useBillingStore } from "../store/billingStore";
 import { validateItemPrice } from "../services/api";
+import { showToast } from "../utils/toast";
 import type { BillDraft } from "../types";
 
 const DRAFT_KEY = "billDraft";
@@ -19,7 +20,6 @@ export function useBillDraft() {
     redeemPoints, courierCharges, customerType, paymentMode,
     updateItems, setCustomerName, setPhone, setPhone2,
     setRedeemPoints, setCourierCharges, setCustomerType, setPaymentMode,
-    showToast,
   } = useBillingStore();
 
   // auto-save whenever bill data changes

@@ -21,6 +21,7 @@ import BillTable from "./components/BillTable";
 import PrintBill from "./components/print/PrintBill";
 import CustomerSection from "./components/CustomerSection";
 import { recalcItem } from "./pricing/resolver";
+import { showToast } from "./utils/toast";
 import {
   fetchNextBillNo as apiFetchNextBillNo,
   fetchBill,
@@ -241,14 +242,14 @@ export default function App() {
       if (response?.fallbackUsage && response.fallbackUsage.length > 0) {
         for (const fallback of response.fallbackUsage) {
           const msg = `Loft fallback used for ${fallback.item}${fallback.shade ? ` (${fallback.shade})` : ''}`;
-          store.showToast(msg, "info");
+          showToast(msg, "info");
         }
       }
       
-      store.showToast(`Bill #${store.nextBillNo} saved!`, "success");
+      showToast(`Bill #${store.nextBillNo} saved!`, "success");
       return true;
     } catch (err: any) {
-      store.showToast(err.message, "error");
+      showToast(err.message, "error");
       return false;
     } finally {
       store.setSaving(false);
@@ -259,18 +260,18 @@ export default function App() {
   // send through whatsapp
   const sendWhatsApp = async () => {
     if (!store.phone || store.items.length === 0) return;
-    if (!isPhoneValid) { store.showToast("Invalid phone number", "error"); return; }
+    if (!isPhoneValid) { showToast("Invalid phone number", "error"); return; }
     const blob = await captureBillImage();
-    if (!blob) { store.showToast("Failed to capture image", "error"); return; }
+    if (!blob) { showToast("Failed to capture image", "error"); return; }
     try {
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      store.showToast("Bill image copied. Paste in WhatsApp.", "success");
+      showToast("Bill image copied. Paste in WhatsApp.", "success");
     } catch {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = `bill-${store.nextBillNo ?? "draft"}.png`; a.click();
       URL.revokeObjectURL(url);
-      store.showToast("Image downloaded. Attach in WhatsApp.", "info");
+      showToast("Image downloaded. Attach in WhatsApp.", "info");
     }
     window.open(`https://wa.me/${phoneForWhatsApp(store.phone)}`, "_blank", "noopener,noreferrer");
   };
@@ -289,20 +290,20 @@ export default function App() {
     const saved = await saveBill();
     if (!saved) { store.setSavingProgress(false); return; }
     window.open(`https://wa.me/${phoneForWhatsApp(store.phone)}`, "_blank", "noopener,noreferrer");
-    store.showToast(copied ? "Bill copied. Paste in WhatsApp." : "Please attach image manually.", copied ? "success" : "info");
+    showToast(copied ? "Bill copied. Paste in WhatsApp." : "Please attach image manually.", copied ? "success" : "info");
     store.setSavingProgress(false);
   };
 
   // retrieve bill
   const retrieveBill = async (billNo: number) => {
-    if (billNo <= 0) { store.showToast("Enter valid bill number", "error"); return; }
+    if (billNo <= 0) { showToast("Enter valid bill number", "error"); return; }
     setBillRetrievalLoading(true);
     try {
       const bill = await fetchBill(billNo);
       setRetrievedBill(bill);
-      store.showToast(`Bill #${billNo} retrieved`, "success");
+      showToast(`Bill #${billNo} retrieved`, "success");
     } catch (err: any) {
-      store.showToast(err.message, "error");
+      showToast(err.message, "error");
       setRetrievedBill(null);
     } finally {
       setBillRetrievalLoading(false);
@@ -320,7 +321,7 @@ export default function App() {
     store.setEditingBill(bill.billNo, bill.date, bill.time, bill.originalRowIndexes);
     store.setCustomer(null);
     setShowBillRetrieval(false);
-    store.showToast("Bill loaded. Edit and re-save.", "success");
+    showToast("Bill loaded. Edit and re-save.", "success");
   };
 
   // restock
@@ -363,7 +364,12 @@ export default function App() {
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={store.cancelDelete} style={styles.cancelBtn}>Cancel</button>
-              <button onClick={() => { if (store.deleteConfirmIdx !== null) { store.removeItem(store.deleteConfirmIdx); store.showToast("Item removed (Undo available)", "info"); } }} style={styles.deleteBtn}>Delete</button>
+              <button onClick={() => {
+                if (store.deleteConfirmIdx !== null) {
+                  store.removeItem(store.deleteConfirmIdx);
+                  showToast("Item removed (Undo available)", "info");
+                }
+              }} style={styles.deleteBtn}>Delete</button>
             </div>
           </div>
         </div>
@@ -513,7 +519,7 @@ export default function App() {
       {/* action buttons */}
       <div className="no-print" style={styles.actions}>
         {store.lastDeletedItem && (
-          <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => { store.undoDelete(); store.showToast("Item restored", "success"); }}>
+          <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => { store.undoDelete(); showToast("Item restored", "success"); }}>
             ↶ Undo Delete
           </button>
         )}

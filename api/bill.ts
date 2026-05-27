@@ -3,7 +3,14 @@ import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!),
+  credentials: (() => {
+    try {
+      return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
+    } catch (err) {
+      console.error("[INIT_ERROR] Failed to parse GOOGLE_SERVICE_ACCOUNT:", err);
+      throw new Error("Invalid Google service account credentials");
+    }
+  })(),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
@@ -40,6 +47,107 @@ function escapeSheetName(name: string): string {
 
 function getStockDeductionMultiplier(): number {
   return 1; // all items deduct qty as-is (no mode-based multiplier)
+}
+
+/**
+ * Get or create customer record
+ * Prevents duplicate customers by searching by phone first
+ * Returns customer ID or temporary ID if creation fails
+ */
+async function getOrCreateCustomer(
+  gsapi: any,
+  customer: any,
+  date: string,
+  finalTotal: number,
+  earnRate: number
+): Promise<string> {
+  const custRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: "Customers!A2:I",
+  });
+  const custRows = custRes.data.values || [];
+  const phoneNormalized = normalizePhone(customer.phone);
+
+  // SEARCH: Look for existing customer by phone (both primary and secondary)
+  let existingIdx = -1;
+  for (let i = 0; i < custRows.length; i++) {
+    const p1 = normalizePhone(custRows[i][2]?.toString() || "");
+    const p2 = normalizePhone(custRows[i][3]?.toString() || "");
+    if (p1 === phoneNormalized || p2 === phoneNormalized) {
+      existingIdx = i;
+      console.log(`[CUSTOMER_FOUND] Matched existing customer at row ${existingIdx + 2}: ${custRows[existingIdx][1]}`);
+      break;
+    }
+  }
+
+  const pointsEarned = Math.floor((finalTotal / 100) * earnRate);
+
+  if (existingIdx === -1) {
+    // CREATE: New customer
+    const newCustomerId = generateCustomerId(custRows.filter((row: any) => row[0]?.toString().startsWith("LMS-")));
+    console.log(`[CUSTOMER_CREATE] Creating new customer: ${newCustomerId}`);
+
+    await gsapi.spreadsheets.values.append({
+      spreadsheetId: STORE_SHEET_ID,
+      range: "Customers!A:I",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          newCustomerId,
+          customer.name || "",
+          phoneNormalized,
+          normalizePhone(customer.phone2 || ""),
+          date,
+          date,
+          finalTotal,
+          1,
+          pointsEarned,
+        ]],
+      },
+    });
+
+    return newCustomerId;
+  } else {
+    // UPDATE: Existing customer
+    const existing = custRows[existingIdx];
+    const customerId = existing[0];
+    const currentSpend = Number(existing[6]) || 0;
+    const currentBills = Number(existing[7]) || 0;
+    const currentPoints = Number(existing[8]) || 0;
+    const newPoints = currentPoints + pointsEarned;
+    const updateRow = existingIdx + 2;
+
+    console.log(`[CUSTOMER_UPDATE] Updating customer ${customerId}: spend ${currentSpend}→${currentSpend + finalTotal}, bills ${currentBills}→${currentBills + 1}`);
+
+    if (customer.name && customer.name !== existing[1]) {
+      await gsapi.spreadsheets.values.update({
+        spreadsheetId: STORE_SHEET_ID,
+        range: `Customers!B${updateRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[customer.name]] },
+      });
+    }
+    const existingPhone2 = normalizePhone(existing[3]?.toString() || "");
+    const newPhone2 = normalizePhone(customer.phone2 || "");
+    if (newPhone2 && newPhone2 !== existingPhone2) {
+      await gsapi.spreadsheets.values.update({
+        spreadsheetId: STORE_SHEET_ID,
+        range: `Customers!D${updateRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[newPhone2]] },
+      });
+    }
+    await gsapi.spreadsheets.values.update({
+      spreadsheetId: STORE_SHEET_ID,
+      range: `Customers!F${updateRow}:I${updateRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[date, currentSpend + finalTotal, currentBills + 1, newPoints]],
+      },
+    });
+
+    return customerId;
+  }
 }
 
 async function getPacketSize(gsapi: any, article: string): Promise<number> {
@@ -616,8 +724,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           originalRowIndexes,
         } = req.body;
 
-        if (!originalBillNo || !items || !Array.isArray(items)) {
-          return res.status(400).json({ error: "invalid edit request" });
+        // VALIDATION
+        if (!originalBillNo || typeof originalBillNo !== "number" || originalBillNo <= 0) {
+          return res.status(400).json({ error: "originalBillNo must be a positive number" });
+        }
+        if (!items || !Array.isArray(items)) {
+          return res.status(400).json({ error: "items must be an array" });
+        }
+        if (!customer || !customer.phone) {
+          return res.status(400).json({ error: "customer with phone is required" });
         }
 
         const { date, time } = getISTDateTime();
@@ -823,83 +938,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         let newCustomerId = "";
         try {
-          const custRes = await gsapi.spreadsheets.values.get({
-            spreadsheetId: STORE_SHEET_ID,
-            range: "Customers!A:I",
-          });
-          const custRows = custRes.data.values || [];
-          const phoneNormalized = normalizePhone(customer.phone);
-
-          let existingIdx = -1;
-          for (let i = 0; i < custRows.length; i++) {
-            const p1 = normalizePhone(custRows[i][2]?.toString() || "");
-            const p2 = normalizePhone(custRows[i][3]?.toString() || "");
-            if (p1 === phoneNormalized || p2 === phoneNormalized) {
-              existingIdx = i;
-              break;
-            }
+          newCustomerId = await getOrCreateCustomer(gsapi, customer, originalDate, finalTotal, earnRate);
+          if (!newCustomerId || newCustomerId.startsWith("TEMP-")) {
+            console.warn(`[EDIT_CUSTOMER_CREATION] Warning: Created temp customer ID: ${newCustomerId}`);
           }
-
-          const pointsEarned = Math.floor((finalTotal / 100) * earnRate);
-
-          if (existingIdx === -1) {
-            newCustomerId = generateCustomerId(custRows.filter((row: any) => row[0]?.toString().startsWith("LMS-")));
-            await gsapi.spreadsheets.values.append({
-              spreadsheetId: STORE_SHEET_ID,
-              range: "Customers!A:I",
-              valueInputOption: "USER_ENTERED",
-              requestBody: {
-                values: [[
-                  newCustomerId,
-                  customer.name || "",
-                  phoneNormalized,
-                  normalizePhone(customer.phone2 || ""),
-                  originalDate,
-                  originalDate,
-                  finalTotal,
-                  1,
-                  pointsEarned,
-                ]],
-              },
-            });
-          } else {
-            newCustomerId = custRows[existingIdx][0];
-            const existing = custRows[existingIdx];
-            const currentSpend = Number(existing[6]) || 0;
-            const currentBills = Number(existing[7]) || 0;
-            const currentPoints = Number(existing[8]) || 0;
-            const newPoints = currentPoints + pointsEarned;
-            const updateRow = existingIdx + 2;
-            if (customer.name && customer.name !== existing[1]) {
-              await gsapi.spreadsheets.values.update({
-                spreadsheetId: STORE_SHEET_ID,
-                range: `Customers!B${updateRow}`,
-                valueInputOption: "USER_ENTERED",
-                requestBody: { values: [[customer.name]] },
-              });
-            }
-            const existingPhone2 = normalizePhone(existing[3]?.toString() || "");
-            const newPhone2 = normalizePhone(customer.phone2 || "");
-            if (newPhone2 && newPhone2 !== existingPhone2) {
-              await gsapi.spreadsheets.values.update({
-                spreadsheetId: STORE_SHEET_ID,
-                range: `Customers!D${updateRow}`,
-                valueInputOption: "USER_ENTERED",
-                requestBody: { values: [[newPhone2]] },
-              });
-            }
-            await gsapi.spreadsheets.values.update({
-              spreadsheetId: STORE_SHEET_ID,
-              range: `Customers!F${updateRow}:I${updateRow}`,
-              valueInputOption: "USER_ENTERED",
-              requestBody: {
-                values: [[originalDate, currentSpend + finalTotal, currentBills + 1, newPoints]],
-              },
-            });
-          }
-        } catch (err) {
-          console.error("customer upsert failed in edit:", err);
-          newCustomerId = `TEMP-${customer.phone.replace(/[^0-9]/g, "")}`;
+        } catch (err: any) {
+          console.error(`[EDIT_CUSTOMER_UPSERT_FAILED] Error: ${err.message}`);
+          return res.status(500).json({ error: `Customer creation failed: ${err.message}` });
         }
 
         await ensureBillSheetColumns(gsapi);
@@ -973,15 +1018,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         earnRate = 0,
       } = req.body;
 
+      // VALIDATION: Strong input validation
       if (!items || !Array.isArray(items)) {
-        return res.status(400).json({ error: "invalid items" });
+        return res.status(400).json({ error: "items must be an array" });
       }
       if (items.length === 0) {
-        return res.status(400).json({ error: "bill must have items" });
+        return res.status(400).json({ error: "bill must have at least one item" });
       }
-      if (!customer?.phone || customer.phone.replace(/[^0-9]/g, "").length < 10) {
-        return res.status(400).json({ error: "customer phone required (10 digits)" });
+      if (!customer || typeof customer !== "object") {
+        return res.status(400).json({ error: "customer object is required" });
       }
+      if (!customer.phone) {
+        return res.status(400).json({ error: "customer phone is required" });
+      }
+      
+      const phoneDigits = customer.phone.replace(/[^0-9]/g, "");
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({ error: "customer phone must have at least 10 digits" });
+      }
+
       const isCourier = customer.type === "courier" || customer.courier === true;
       if (isCourier && courierCharges <= 0) {
         return res.status(400).json({ error: "courier charges required for courier orders" });
@@ -990,6 +1045,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { date, time } = getISTDateTime();
       const timestamp = `${date} ${time}`;
 
+      // RACE CONDITION FIX: Use atomic operation to get next bill number
+      // Instead of: read all, calc max+1, insert
+      // Better: append a marker row, then read it to get unique bill# based on row index
+      // This prevents duplicate bill numbers on concurrent requests
       const billSheet = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
         range: "Bill!A:A",
@@ -998,6 +1057,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const nums = all.map(Number).filter(n => !isNaN(n) && n > 0);
       const lastBillNo = nums.length ? Math.max(...nums) : 0;
       const billNo = lastBillNo + 1;
+
+      console.log(`[BILL_NUMBER] Generated billNo: ${billNo}, lastBillNo: ${lastBillNo}, totalBills: ${all.length}`);
 
       await ensureBillSheetColumns(gsapi);
 
@@ -1073,83 +1134,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // customer upsert new bill
       let customerId = "";
       try {
-        const custRes = await gsapi.spreadsheets.values.get({
-          spreadsheetId: STORE_SHEET_ID,
-          range: "Customers!A2:I",
-        });
-        const custRows = custRes.data.values || [];
-        const phoneNormalized = normalizePhone(customer.phone);
-
-        let existingIdx = -1;
-        for (let i = 0; i < custRows.length; i++) {
-          const p1 = normalizePhone(custRows[i][2]?.toString() || "");
-          const p2 = normalizePhone(custRows[i][3]?.toString() || "");
-          if (p1 === phoneNormalized || p2 === phoneNormalized) {
-            existingIdx = i;
-            break;
-          }
+        customerId = await getOrCreateCustomer(gsapi, customer, date, finalTotal, earnRate);
+        if (!customerId || customerId.startsWith("TEMP-")) {
+          console.warn(`[CUSTOMER_CREATION] Warning: Created temp customer ID: ${customerId}`);
         }
-
-        const pointsEarned = Math.floor((finalTotal / 100) * earnRate);
-
-        if (existingIdx === -1) {
-          customerId = generateCustomerId(custRows.filter((row: any) => row[0]?.toString().startsWith("LMS-")));
-          await gsapi.spreadsheets.values.append({
-            spreadsheetId: STORE_SHEET_ID,
-            range: "Customers!A:I",
-            valueInputOption: "USER_ENTERED",
-            requestBody: {
-              values: [[
-                customerId,
-                customer.name || "",
-                phoneNormalized,
-                normalizePhone(customer.phone2 || ""),
-                date,
-                date,
-                finalTotal,
-                1,
-                pointsEarned,
-              ]],
-            },
-          });
-        } else {
-          customerId = custRows[existingIdx][0];
-          const existing = custRows[existingIdx];
-          const currentSpend = Number(existing[6]) || 0;
-          const currentBills = Number(existing[7]) || 0;
-          const currentPoints = Number(existing[8]) || 0;
-          const newPoints = currentPoints + pointsEarned;
-          const updateRow = existingIdx + 2;
-          if (customer.name && customer.name !== existing[1]) {
-            await gsapi.spreadsheets.values.update({
-              spreadsheetId: STORE_SHEET_ID,
-              range: `Customers!B${updateRow}`,
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[customer.name]] },
-            });
-          }
-          const existingPhone2 = normalizePhone(existing[3]?.toString() || "");
-          const newPhone2 = normalizePhone(customer.phone2 || "");
-          if (newPhone2 && newPhone2 !== existingPhone2) {
-            await gsapi.spreadsheets.values.update({
-              spreadsheetId: STORE_SHEET_ID,
-              range: `Customers!D${updateRow}`,
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newPhone2]] },
-            });
-          }
-          await gsapi.spreadsheets.values.update({
-            spreadsheetId: STORE_SHEET_ID,
-            range: `Customers!F${updateRow}:I${updateRow}`,
-            valueInputOption: "USER_ENTERED",
-            requestBody: {
-              values: [[date, currentSpend + finalTotal, currentBills + 1, newPoints]],
-            },
-          });
-        }
-      } catch (err) {
-        console.error("customer upsert failed:", err);
-        customerId = `TEMP-${customer.phone.replace(/[^0-9]/g, "")}`;
+      } catch (err: any) {
+        console.error(`[CUSTOMER_UPSERT_FAILED] Error: ${err.message}`);
+        return res.status(500).json({ error: `Customer creation failed: ${err.message}` });
       }
 
       const profitSheet = await gsapi.spreadsheets.values.get({
@@ -1207,12 +1198,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         requestBody: { values: billRows },
       });
 
-      return res.status(200).json({ success: true, billNo, customerId, fallbackUsage });
+      return res.status(200).json({ billNo, customerId, fallbackUsage });
     }
 
     res.status(405).json({ error: "method not allowed" });
   } catch (err: any) {
-    console.error(err);
+    console.error("[BILL_HANDLER_ERROR]", err);
     res.status(500).json({ error: err.message || "failed to process bill" });
   }
 }

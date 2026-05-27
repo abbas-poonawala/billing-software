@@ -136,7 +136,7 @@ async function handleGetShades(gsapi: any, req: VercelRequest, res: VercelRespon
     return res.status(200).json({ shades: cached.shades });
   }
 
-  // try primary sheet first
+  // try hooks sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -148,10 +148,10 @@ async function handleGetShades(gsapi: any, req: VercelRequest, res: VercelRespon
       return res.status(200).json({ shades });
     }
   } catch (err: any) {
-    console.log(`Primary sheet lookup failed for item "${item}", trying LOFT`);
+    console.log(`Hooks sheet lookup failed for item "${item}", trying LOFT`);
   }
 
-  // fallback to LOFT sheet if primary sheet doesn't exist or is empty
+  // fallback to loft sheet if hooks sheet doesnt exist or is empty
   try {
     const loftResponse = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -179,7 +179,7 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     return res.status(200).json({ price: cached.price, qty: cached.qty });
   }
 
-  // try primary sheet first
+  // try hooks sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -199,7 +199,7 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     console.log(`Primary sheet lookup failed for item "${item}", shade "${shade}", trying LOFT`);
   }
 
-  // fallback to LOFT sheet if no match found in primary or primary sheet doesn't exist
+  // fallback to loft sheet if no match found in hooks sheet
   try {
     const loftResponse = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -232,7 +232,7 @@ async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse
   const normalizedItem = normalizeShade(item);
   const normalizedShade = shade && typeof shade === "string" ? normalizeShade(shade) : "";
 
-  // try primary sheet first
+  // try hooks sheet first
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
@@ -264,7 +264,7 @@ async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse
     console.log(`Primary Profit sheet lookup failed for item "${item}"`);
   }
 
-  // LOFT fallback - try to find in LOFT sheet if configured
+  // loft fallback - try to find in loft if not in hooks
   if (LOFT_SHEET_ID) {
     try {
       const loftResponse = await gsapi.spreadsheets.values.get({
@@ -304,9 +304,10 @@ async function handleGetCustomer(gsapi: any, req: VercelRequest, res: VercelResp
     return res.status(400).json({ error: "Missing phone parameter" });
   }
 
+  // schema: A: Customer ID, B: Name, C: Phone1, D: Phone2, E: FirstVisit, F: LastVisit, G: Expenditure, H: TotalBills, I: Points
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: "Customers!A2:H",
+    range: "Customers!A2:I",
   });
 
   const rows = response.data.values || [];
@@ -326,9 +327,9 @@ async function handleGetCustomer(gsapi: any, req: VercelRequest, res: VercelResp
       name: matchedRow[1] || "",
       phone: matchedRow[2] || "",
       phone2: matchedRow[3] || "",
-      totalSpend: Number(matchedRow[5] || 0),
-      totalBills: Number(matchedRow[6] || 0),
-      points: Number(matchedRow[7] || 0),
+      totalSpend: Number(matchedRow[6] || 0),
+      totalBills: Number(matchedRow[7] || 0),
+      points: Number(matchedRow[8] || 0),
     },
   });
 }
@@ -341,7 +342,7 @@ async function handleSearchCustomersByName(gsapi: any, req: VercelRequest, res: 
 
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: "Customers!A2:H",
+    range: "Customers!A2:I",
   });
   const rows = response.data.values || [];
   const searchName = name.toString().trim().toLowerCase();
@@ -353,7 +354,7 @@ async function handleSearchCustomersByName(gsapi: any, req: VercelRequest, res: 
     name: r[1] || "",
     phone: r[2] || "",
     phone2: r[3] || "",
-    points: Number(r[7]) || 0,
+    points: Number(r[8]) || 0,
   })).slice(0, 20);
   return res.status(200).json({ customers: matches });
 }
@@ -366,7 +367,7 @@ async function handleSearchCustomersById(gsapi: any, req: VercelRequest, res: Ve
 
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: "Customers!A2:H",
+    range: "Customers!A2:I",
   });
   const rows = response.data.values || [];
   const matched = rows.find((r: any) => r[0]?.toString().trim() === customerId.toString().trim());
@@ -379,9 +380,9 @@ async function handleSearchCustomersById(gsapi: any, req: VercelRequest, res: Ve
       name: matched[1] || "",
       phone: matched[2] || "",
       phone2: matched[3] || "",
-      totalSpend: Number(matched[5]) || 0,
-      totalBills: Number(matched[6]) || 0,
-      points: Number(matched[7]) || 0,
+      totalSpend: Number(matched[6]) || 0,
+      totalBills: Number(matched[7]) || 0,
+      points: Number(matched[8]) || 0, 
     },
   });
 }
@@ -394,17 +395,18 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
 
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: "Customers!A2:H",
+    range: "Customers!A2:I",
   });
 
   const rows = response.data.values || [];
   const phoneNormalized = normalizePhone(phone);
   
-  // search both phone (column 3) and phone2 (column 4)
+  // FIX 3c: Correct column indexes. Schema: C=Phone1 [2], D=Phone2 [3]
+  // BUG WAS: Reading from [3] and [4], should be [2] and [3]
   const matched = rows.find((r: any) => {
-    const rowPhone = normalizePhone(r[3]?.toString() || "");
-    const rowPhone2 = normalizePhone(r[4]?.toString() || "");
-    return rowPhone === phoneNormalized || rowPhone2 === phoneNormalized;
+    const rowPhone1 = normalizePhone(r[2]?.toString() || ""); // Phone1 in column C (index 2)
+    const rowPhone2 = r[3] ? normalizePhone(r[3]?.toString()) : null; // Phone2 in column D (index 3), only if non-empty
+    return rowPhone1 === phoneNormalized || (rowPhone2 && rowPhone2 === phoneNormalized);
   });
 
   if (!matched) {
@@ -417,9 +419,9 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
       name: matched[1] || "",
       phone: matched[2] || "",
       phone2: matched[3] || "",
-      totalSpend: Number(matched[5]) || 0,
-      totalBills: Number(matched[6]) || 0,
-      points: Number(matched[7]) || 0,
+      totalSpend: Number(matched[6]) || 0,
+      totalBills: Number(matched[7]) || 0,
+      points: Number(matched[8]) || 0, // FIX 3b: Column I (index 8) - Points column
     },
   });
 }
@@ -456,40 +458,25 @@ async function handleGetBoxPrice(gsapi: any, req: VercelRequest, res: VercelResp
   }
 }
 
-/**
- * Get points configuration (earn/redeem rates)
- * Reads from Settings sheet or uses defaults
- * This was a missing backend feature that frontend was calling
- */
+
+// points configuration
 async function handleGetPointsConfig(gsapi: any, res: VercelResponse) {
   try {
-    console.log("[GET_POINTS_CONFIG] Fetching points configuration");
-    
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: "Settings!A2:B20",
+      range: "PointsConfig!A2:C2",
     });
 
-    const rows = response.data.values || [];
-    
-    // Parse settings from rows with format: [key, value]
-    const config: Record<string, number> = {};
-    for (const row of rows) {
-      const key = (row[0] || "").toString().trim().toLowerCase();
-      const value = Number(row[1]) || 0;
-      
-      if (key.includes("earn")) config.earnRate = value;
-      if (key.includes("redeem")) config.redeemRate = value;
-      if (key.includes("min")) config.minRedeem = value;
+    const row = response.data.values?.[0];
+
+    if (!row) {
+      throw new Error("PointsConfig row missing");
     }
 
-    // Fallback to defaults if not found
-    const earnRate = config.earnRate || 5; // 5 points per 100 rupees
-    const redeemRate = config.redeemRate || 10; // 10 rupees per point
-    const minRedeem = config.minRedeem || 100; // minimum 100 points
+    const earnRate = Number(row[0]) || 0.01;
+    const redeemRate = Number(row[1]) || 1;
+    const minRedeem = Number(row[2]) || 50;
 
-    console.log(`[GET_POINTS_CONFIG] Loaded: earn=${earnRate}, redeem=${redeemRate}, min=${minRedeem}`);
-    
     return res.status(200).json({
       config: {
         earnRate,
@@ -498,14 +485,6 @@ async function handleGetPointsConfig(gsapi: any, res: VercelResponse) {
       },
     });
   } catch (err: any) {
-    console.error(`[GET_POINTS_CONFIG_ERROR] ${err.message}`);
-    // Return safe defaults on error
-    return res.status(200).json({
-      config: {
-        earnRate: 5,
-        redeemRate: 10,
-        minRedeem: 100,
-      },
-    });
-  }
-}
+    console.error("[GET_POINTS_CONFIG_ERROR]", err.message);
+    return res.status(500).json({ error: "Failed to fetch points configuration" });
+}}

@@ -1,11 +1,3 @@
-/**
- * useBillDraft
- * ────────────
- * Auto-saves the current bill to localStorage.
- * On mount, offers to recover an unsaved draft.
- * Validates prices against the sheet before restoring.
- */
-
 import { useEffect } from "react";
 import { useBillingStore } from "../store/billingStore";
 import { validateItemPrice } from "../services/api";

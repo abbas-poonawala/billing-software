@@ -1,14 +1,3 @@
-/**
- * BillTable
- * ─────────
- * Renders the live bill items table with:
- * - Qty +/− controls
- * - Inline price edit (EditableCell — no revert bug)
- * - Inline shade edit with dropdown
- * - Row selection
- * - Delete confirmation
- */
-
 import React, { useState } from "react";
 import { useBillingStore } from "../store/billingStore";
 import EditableCell from "./EditableCell";

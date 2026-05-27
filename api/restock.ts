@@ -184,7 +184,7 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
             });
             const firstDataRow = dataCheck.data.values?.[0] || [];
             if (firstDataRow.length > 0 || headerRow.length > 0) {
-              // sheet has structure, assume its a valid item sheet even without explicit "Shade" header
+              // sheet has structure, assume its a valid item sheet even without "Shade" header
               itemSheets.push(sheetName);
             }
           } catch (innerErr) {

@@ -19,11 +19,9 @@ const TRIOSOFT_BULK_PRICE = 110;
 const TRIOSOFT_RETAIL_PRICE = 120;
 const TRIOSOFT_BULK_QTY = 6;
 
-/**
- * Re-applies Triosoft slab pricing across the entire bill.
- * Must be called after any qty or item change.
- * Only affects non-overridden Triosoft rows.
- */
+
+// re-applies triosoft slab pricing across the entire bill
+
 export function applyTriosoftPricing(items: BillItem[]): BillItem[] {
   const triosoftIdxs = items
     .map((item, idx) => ({ item, idx }))
@@ -62,11 +60,11 @@ export function computeGPayCharge(subtotal: number, paymentMode: PaymentMode): n
 // bill totals
 
 export interface BillTotals {
-  grandTotal: number;         // sum of all item totals
+  grandTotal: number; // sum of all item totals
   subtotalWithCourier: number; // + courier charges
-  gpayCharge: number;         // 2% if GPay
-  finalTotal: number;         // the number that matters
-  changeAmount: number;       // cash back to customer
+  gpayCharge: number; // 2% if GPay
+  finalTotal: number; // the number that matters
+  changeAmount: number;  // cash back to customer
 }
 
 export function computeBillTotals(
@@ -84,12 +82,8 @@ export function computeBillTotals(
   return { grandTotal, subtotalWithCourier, gpayCharge, finalTotal, changeAmount };
 }
 
-// row recalc
+// row recalc, recomputes total and profit for a single item, always call this after mutating qty or price
 
-/**
-recomputes total and profit for a single BillItem.
-always call this after mutating qty or price.
- */
 export function recalcItem(item: BillItem): BillItem {
   const qty = Number(item.qty) || 0;
   const price = Number(item.price) || 0;
@@ -99,16 +93,12 @@ export function recalcItem(item: BillItem): BillItem {
   return { ...item, total, profit };
 }
 
-/**
-top-level function to apply all pricing rules to a bill.
-call this instead of setItems directly.
- */
+
 export function applyAllPricingRules(items: BillItem[]): BillItem[] {
   return applyTriosoftPricing(items);
 }
 
 // points calc
-
 export function computePointsEarned(finalTotal: number, earnRate: number): number {
   return Math.floor((finalTotal / 100) * earnRate);
 }

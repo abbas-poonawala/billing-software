@@ -1,15 +1,3 @@
-/**
- * useItemSearch
- * ─────────────
- * Manages item list, shade list, price caching, and Fuse.js search.
- * Replaces the scattered useEffect chains in App.tsx.
- *
- * Caching strategy:
- *  - allItems: sessionStorage (cleared on save)
- *  - shades: in-memory ref (per session)
- *  - prices: in-memory ref (cleared on save)
- */
-
 import { useState, useEffect, useRef, useMemo } from "react";
 import Fuse from "fuse.js";
 import { fetchItems, fetchShades, fetchPrice, fetchCost } from "../services/api";

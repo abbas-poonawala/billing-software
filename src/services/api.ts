@@ -1,9 +1,3 @@
-/**
- * API Service
- * All network calls live here. Components never call fetch() directly.
- * Uses 4 API routes (Vercel limit) with action routing.
- */
-
 import type { Customer, PointsConfig, RetrievedBill } from "../types";
 
 // inventory

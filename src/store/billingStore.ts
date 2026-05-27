@@ -1,20 +1,6 @@
-/**
- * Billing Store (Zustand)
- * Single source of truth for all mutable billing state.
- * Replaces ~30 useState calls in App.tsx.
- *
- * Key design decisions:
- * - editedPrice is tracked separately from originalPrice (fixes the revert bug)
- * - updateItems always goes through applyAllPricingRules
- * - Selectors kept in store for easy memoization
- * - Toast notifications delegated to Sonner (removed dual state)
- */
-
 import { create } from "zustand";
 import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
-
-//start of billing store code
 
 interface BillingState {
   // bill items

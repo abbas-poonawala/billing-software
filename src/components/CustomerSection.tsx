@@ -1,12 +1,3 @@
-/**
- * CustomerSection
- * ───────────────
- * Customer lookup, walk-in vs courier toggle, payment mode,
- * points display, and phone inputs.
- *
- * All customer search logic is here — not in App.tsx.
- */
-
 import React, {useRef} from 'react';
 import { useBillingStore } from "../store/billingStore";
 import SearchDropdown from "./SearchDropdown";
@@ -142,9 +133,9 @@ export default function CustomerSection() {
         </div>
       </div>
 
-      {/* Customer search inputs */}
+      {/* customer search inputs */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        {/* Name search with dropdown */}
+        {/* name search with dropdown */}
         <SearchDropdown
           value={customerName}
           onChange={handleNameChange}
@@ -177,7 +168,7 @@ export default function CustomerSection() {
         {searching && <span>🔍</span>}
       </div>
 
-      {/* Customer info */}
+      {/* customer info */}
       {customer && (
         <div style={styles.customerInfo}>
           <span>👤 {customer.customerId} — {customer.name} — {customer.points} pts</span>
@@ -194,14 +185,14 @@ export default function CustomerSection() {
         </div>
       )}
 
-      {/* New customer hint */}
+      {/* new customer hint */}
       {isNew && (
         <div style={{ fontSize: 13, color: "#888", marginTop: 6, fontWeight: 500 }}>
           🆕 New customer — will be registered on save.
         </div>
       )}
 
-      {/* Courier charges */}
+      {/* courier charges */}
       {customerType === "courier" && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, minWidth: 120 }}>Courier Charges:</span>

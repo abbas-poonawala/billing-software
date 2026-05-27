@@ -1,13 +1,3 @@
-/**
- * EditableCell
- * ────────────
- * Generic double-click-to-edit cell used in the bill table.
- * Fixes the "enter → old price comes back" bug by:
- *  1. Never touching originalPrice on save
- *  2. Keeping editedValue in LOCAL state (no store round-trip during editing)
- *  3. Only committing on Enter / blur, not on every keystroke
- */
-
 import React, { useState, useEffect, useRef } from "react";
 
 interface Props {
@@ -36,11 +26,11 @@ export default function EditableCell({
   children,
 }: Props) {
   const [editing, setEditing] = useState(false);
-  // ⚠️ editedValue is LOCAL - not synced from props while editing
+  // editedValue is local, not synced from props while editing
   const [editedValue, setEditedValue] = useState(String(value));
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // when we START editing, snapshot the current value
+  // when editing starts, snapshot the current value
   const startEditing = () => {
     setEditedValue(String(value));
     setEditing(true);

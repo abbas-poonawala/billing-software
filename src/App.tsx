@@ -1,14 +1,3 @@
-/*
-App.tsx
-Orchestrator only. Business logic lives in:
-src/store/billingStore.ts  [state]
-src/pricing/resolver.ts    [pricing]
-src/services/api.ts         [network]
-src/hooks/                  [effects & keyboard]
-src/components/             [UI pieces]
-src/utils/                  [pure functions]
-*/
-
 import { useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import { Toaster } from "sonner";
@@ -75,7 +64,6 @@ async function captureBillImage(): Promise<Blob | null> {
 }
 
 // app
-
 export default function App() {
   // store
   const store = useBillingStore();
@@ -432,7 +420,8 @@ export default function App() {
 
           <input
             ref={qtyRef}
-            type="number"
+            type="text"
+            inputMode="numeric"
             min="1"
             value={store.entryQty}
             onChange={e => store.setEntryQty(Number(e.target.value))}

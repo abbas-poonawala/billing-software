@@ -1,10 +1,3 @@
-/**
- * useKeyboardShortcuts
- * ────────────────────
- * Keeps only true global shortcuts and table-row navigation.
- * Dropdowns / autocomplete / Enter / Tab are handled locally now.
- */
-
 import { useEffect } from "react";
 import { useBillingStore } from "../store/billingStore";
 import { isValidPhone } from "../utils/phone";

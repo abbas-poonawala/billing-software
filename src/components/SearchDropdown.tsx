@@ -1,14 +1,3 @@
-/**
- * SearchDropdown
- * ──────────────
- * Reusable input + dropdown combo used for:
- *  - Item search
- *  - Shade search
- *  - Customer name search
- *
- * Uses cmdk for stable keyboard interactions and cleaner selection flow.
- */
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Command } from "cmdk";
 
@@ -17,14 +6,12 @@ interface Props {
   onChange: (val: string) => void;
   onSelect: (val: string) => void;
   options: string[];
-  /** Ghost suggestion (Tab to accept) */
   suggestion?: string | null;
   placeholder?: string;
   style?: React.CSSProperties;
   inputRef?: React.RefObject<HTMLInputElement | null>;
   autoFocus?: boolean;
   disabled?: boolean;
-  /** Max options shown in list */
   maxVisible?: number;
   renderOption?: (opt: string, highlighted: boolean) => React.ReactNode;
   onKeyDownExtra?: (e: React.KeyboardEvent<HTMLInputElement>) => void;

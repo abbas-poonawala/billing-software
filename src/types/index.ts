@@ -8,7 +8,7 @@ export type BillItem = {
   shade: string;
   qty: number;
   cost: number;
-  // current price - may be overridden by user or modified by pricing rules
+  // current price may be overridden by user or modified by pricing rules
   price: number;
   // fetched price
   originalPrice: number;

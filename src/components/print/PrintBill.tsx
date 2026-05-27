@@ -1,15 +1,4 @@
-/**
- * PrintBill
- * ─────────
- * Isolated print layout. Gets all data as props.
- * Never reads from global state directly — safe to render independently.
- *
- * Usage:
- *   <PrintBill id="print-bill" {...billData} />
- *
- * Print CSS lives in print.css (imported in main.tsx or index.css).
- */
-
+// src/components/print/PrintBill.tsx
 import React from "react";
 import type { BillItem, Customer, PaymentMode } from "../../types";
 import { formatPrice } from "../../utils/formatting";

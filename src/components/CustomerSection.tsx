@@ -28,7 +28,9 @@ export default function CustomerSection() {
 
   const [searchResults, setSearchResults] = React.useState<Customer[]>([]);
   const [searching, setSearching] = React.useState(false);
+  const [customerId, setCustomerId] = React.useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const customerLabelMap = React.useMemo(() => {
     return new Map(
@@ -36,11 +38,23 @@ export default function CustomerSection() {
     );
   }, [searchResults]);
 
+  // clear all customer fields
+  const clearCustomer = () => {
+    setCustomer(null);
+    setCustomerName("");
+    setPhone("");
+    setPhone2("");
+    setCustomerId("");
+    setSearchResults([]);
+    setRedeemPoints(false);
+  };
+
   const selectCustomer = (cust: Customer) => {
     setCustomer(cust);
     setCustomerName(cust.name);
     setPhone(cust.phone);
     setPhone2(cust.phone2 || "");
+    setCustomerId(cust.customerId.replace(/^LMS-/, ""));
     setSearchResults([]);
     showToast(`Customer: ${cust.name}`, "success");
   };
@@ -48,7 +62,18 @@ export default function CustomerSection() {
   const handleNameChange = (val: string) => {
     setCustomerName(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (val.trim().length < 2) { setSearchResults([]); return; }
+    
+    // if cleared, clear customer
+    if (!val.trim()) {
+      clearCustomer();
+      return;
+    }
+    
+    if (val.trim().length < 2) { 
+      setSearchResults([]); 
+      return; 
+    }
+    
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
@@ -62,7 +87,15 @@ export default function CustomerSection() {
 
   const handlePhoneChange = async (val: string) => {
     setPhone(val);
-    if (val.replace(/[^0-9]/g, "").length >= 10) {
+    const digits = val.replace(/[^0-9]/g, "");
+    
+    // if cleared, clear customer
+    if (!digits) {
+      clearCustomer();
+      return;
+    }
+    
+    if (digits.length >= 10) {
       const found = await searchCustomersByPhone(val);
       if (found) selectCustomer(found);
     }
@@ -70,25 +103,43 @@ export default function CustomerSection() {
 
   const handlePhone2Change = async (val: string) => {
     setPhone2(val);
-    if (val.replace(/[^0-9]/g, "").length >= 10) {
+    const digits = val.replace(/[^0-9]/g, "");
+    
+    // if cleared, clear customer
+    if (!digits) {
+      clearCustomer();
+      return;
+    }
+    
+    if (digits.length >= 10) {
       const found = await searchCustomersByPhone(val);
       if (found) selectCustomer(found);
     }
   };
 
-  const handleIdSearch = async (val: string) => {
-    if (val.trim().length < 2) return;
-    const found = await searchCustomersById(val);
-    if (found) selectCustomer(found);
-    else showToast("Customer ID not found", "error");
+  const handleIdChange = (val: string) => {
+    // only allow numeric input
+    const numericOnly = val.replace(/[^0-9]/g, "");
+    setCustomerId(numericOnly);
+    
+    // clear if empty
+    if (!numericOnly) {
+      clearCustomer();
+      return;
+    }
+    
+    // debounce ID search - only after numeric input exists
+    if (idSearchRef.current) clearTimeout(idSearchRef.current);
+    idSearchRef.current = setTimeout(async () => {
+      if (numericOnly.length >= 2) {
+        const found = await searchCustomersById(`LMS-${numericOnly}`);
+        if (found) selectCustomer(found);
+      }
+    }, 400);
   };
 
   const switchType = (type: "walk-in" | "courier") => {
     setCustomerType(type);
-    setCustomerName("");
-    setPhone("");
-    setPhone2("");
-    setCustomer(null);
     if (type === "walk-in") setCourierCharges("");
   };
 
@@ -160,11 +211,19 @@ export default function CustomerSection() {
 
         <input value={phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="Phone 1" style={si} />
         <input value={phone2} onChange={e => handlePhone2Change(e.target.value)} placeholder="Phone 2 (optional)" style={si} />
-        <input
-          placeholder="Or search by ID..."
-          style={si}
-          onChange={e => { if (e.target.value.trim()) handleIdSearch(e.target.value); }}
-        />
+        
+        {/* Customer ID with prefix */}
+        <div style={{ ...si, display: "flex", alignItems: "center", padding: 0, gap: 0, flex: 1 }}>
+          <span style={{ padding: "12px 14px", background: "#f0f4f8", fontWeight: 700, color: "#0f172a", fontSize: 14, borderRight: "1px solid #cbd5e1" }}>LMS-</span>
+          <input
+            value={customerId}
+            onChange={e => handleIdChange(e.target.value)}
+            placeholder="Search by ID..."
+            style={{ ...si, flex: 1, margin: 0, padding: "12px 14px", border: "none", borderLeft: "none" }}
+            inputMode="numeric"
+          />
+        </div>
+
         {searching && <span>🔍</span>}
       </div>
 
@@ -172,6 +231,21 @@ export default function CustomerSection() {
       {customer && (
         <div style={styles.customerInfo}>
           <span>👤 {customer.customerId} — {customer.name} — {customer.points} pts</span>
+          <button
+            onClick={clearCustomer}
+            style={{
+              padding: "4px 10px",
+              fontSize: 12,
+              background: "#ef4444",
+              color: "#fff",
+              border: "none",
+              borderRadius: 3,
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            ✕ Remove
+          </button>
           {pointsConfig && customer.points >= pointsConfig.minRedeem ? (
             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
               <input type="checkbox" checked={redeemPoints} onChange={e => setRedeemPoints(e.target.checked)} />

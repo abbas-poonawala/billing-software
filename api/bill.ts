@@ -538,10 +538,8 @@ function createBillRow(
   ];
 }
 
-// ============================================================
-// main handler
-// ============================================================
 
+// main handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const client = await auth.getClient();

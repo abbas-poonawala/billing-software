@@ -46,11 +46,11 @@ export default function PrintBill({
           {customer?.customerId && (
             <div style={styles.metaRow}><span style={styles.metaLabel}>ID:</span> {customer.customerId}</div>
           )}
-          <div style={styles.metaRow}><span style={styles.metaLabel}>Customer:</span> {customerName || "—"}</div>
-          <div style={styles.metaRow}><span style={styles.metaLabel}>Phone:</span> {phone || "—"}</div>
+          <div style={styles.metaRow}><span style={styles.metaLabel}>Customer:</span> {customerName || ""}</div>
+          <div style={styles.metaRow}><span style={styles.metaLabel}>Phone:</span> {phone || ""}</div>
         </div>
         <div style={styles.metaRight}>
-          <div style={styles.metaRow}><span style={styles.metaLabel}>Bill No:</span> #{billNo ?? "—"}</div>
+          <div style={styles.metaRow}><span style={styles.metaLabel}>Bill No:</span> #{billNo ?? ""}</div>
           <div style={styles.metaRow}><span style={styles.metaLabel}>Date:</span> {billDate}</div>
           <div style={styles.metaRow}><span style={styles.metaLabel}>Time:</span> {billTime}</div>
         </div>

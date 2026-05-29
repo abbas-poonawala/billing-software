@@ -38,8 +38,8 @@ const auth = new google.auth.GoogleAuth({
     try {
       return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
     } catch (err) {
-      console.error("[init_error] failed to parse service account:", err);
-      throw new Error("invalid google service account credentials");
+      console.error("[init_error] Failed to parse service account:", err);
+      throw new Error("Invalid google service account credentials.");
     }
   })(),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -61,7 +61,7 @@ function escapeSheetName(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
-function normalizePhone(phone?: string | null): string | null {
+function normalisePhone(phone?: string | null): string | null {
   if (phone === undefined || phone === null) return null;
   const input = phone.toString().trim();
   if (input === "") return null;
@@ -134,13 +134,13 @@ async function findCustomerByPhone(gsapi: any, phone: string): Promise<any | nul
     range: "Customers!A2:I",
   });
   const rows = custRes.data.values || [];
-  const normalizedSearch = normalizePhone(phone);
-  if (!normalizedSearch) return null;
+  const normalisedSearch = normalisePhone(phone);
+  if (!normalisedSearch) return null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const p1 = normalizePhone(row[CUSTOMER_COLUMNS.PHONE1]?.toString());
-    const p2 = normalizePhone(row[CUSTOMER_COLUMNS.PHONE2]?.toString());
-    if (p1 === normalizedSearch || p2 === normalizedSearch) {
+    const p1 = normalisePhone(row[CUSTOMER_COLUMNS.PHONE1]?.toString());
+    const p2 = normalisePhone(row[CUSTOMER_COLUMNS.PHONE2]?.toString());
+    if (p1 === normalisedSearch || p2 === normalisedSearch) {
       return { rowIndex: i, data: row };
     }
   }
@@ -154,8 +154,8 @@ async function upsertCustomer(
   finalTotal: number,
   earnRate: number
 ): Promise<string> {
-  const phoneNormalized = normalizePhone(customer.phone);
-  if (!phoneNormalized) throw new Error("valid customer phone required");
+  const phoneNormalised = normalisePhone(customer.phone);
+  if (!phoneNormalised) throw new Error("Valid customer phone required");
 
   const existing = await findCustomerByPhone(gsapi, customer.phone);
   const pointsEarned = Math.floor(finalTotal * earnRate);
@@ -175,8 +175,8 @@ async function upsertCustomer(
         values: [[
           newId,
           customer.name || "",
-          phoneNormalized,
-          normalizePhone(customer.phone2),
+          phoneNormalised,
+          normalisePhone(customer.phone2),
           date,
           date,
           finalTotal,
@@ -204,14 +204,14 @@ async function upsertCustomer(
       requestBody: { values: [[customer.name]] },
     });
   }
-  const newPhone2 = normalizePhone(customer.phone2);
-  const oldPhone2 = normalizePhone(row[CUSTOMER_COLUMNS.PHONE2]?.toString());
-  if (newPhone2 && newPhone2 !== oldPhone2) {
+  const newphone2 = normalisePhone(customer.phone2);
+  const oldphone2 = normalisePhone(row[CUSTOMER_COLUMNS.PHONE2]?.toString());
+  if (newphone2 && newphone2 !== oldphone2) {
     await gsapi.spreadsheets.values.update({
       spreadsheetId: STORE_SHEET_ID,
       range: `Customers!D${updateRow}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[newPhone2]] },
+      requestBody: { values: [[newphone2]] },
     });
   }
   await gsapi.spreadsheets.values.update({
@@ -457,9 +457,7 @@ async function ensureBillSheetColumns(gsapi: any) {
       },
     });
     const expectedHeaders = [
-      "bill no", "item", "shade / variant", "qty", "price", "profit", "total",
-      "courier charges", "gpay charges", "final total", "customer id", "date",
-      "time", "last updated", "payment mode",
+      "bill no", "item", "shade / variant", "qty", "price", "profit", "total", "courier charges", "gpay charges", "final total", "customer id", "date", "time", "last updated", "payment mode",
     ];
     for (let i = 0; i < expectedHeaders.length; i++) {
       await gsapi.spreadsheets.values.update({
@@ -676,8 +674,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           const logEntry = fallbackLog.find(
             (log: any) =>
-              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
-              log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
+              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() && log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
           );
           if (logEntry) {
             const individualsUsed = Number(logEntry[5]) || 0;

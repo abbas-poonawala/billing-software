@@ -293,8 +293,8 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
     }
 
     const header = isAll
-      ? `*FULL HOOKS RESTOCK — ${today}*\n⚠️ Items below ${LOW_STOCK_THRESHOLD} (not yet requested this week):\n\n`
-      : `*HOOKS RESTOCK — ${today}*\nItem: *${itemsToProcess[0].toUpperCase()}*\n⚠️ Shades below ${LOW_STOCK_THRESHOLD} (not yet requested this week):\n\n`;
+      ? `*FULL HOOKS RESTOCK: ${today}*\n⚠️ Items below ${LOW_STOCK_THRESHOLD} (not yet requested this week):\n\n`
+      : `*HOOKS RESTOCK: ${today}*\nItem: *${itemsToProcess[0].toUpperCase()}*\n⚠️ Shades below ${LOW_STOCK_THRESHOLD} (not yet requested this week):\n\n`;
     const footer = `\nTotal shades to restock: ${totalShades}`;
     const message = header + restockLines.join("\n") + footer;
     const waLink = `https://wa.me/${RESTOCK_PHONE}?text=${encodeURIComponent(message)}`;
@@ -402,7 +402,7 @@ async function handleHooksRestock(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ message: "All shades already at target stock (5 units)", transfers: [], shortages: [] });
     }
 
-    const lines: string[] = [`*HOOKS RESTOCK PLAN — ${item}*\nTarget per shade: ${TARGET_STOCK} units\n`];
+    const lines: string[] = [`*HOOKS RESTOCK PLAN: ${item}*\nTarget per shade: ${TARGET_STOCK} units\n`];
     for (const t of transfers) {
       lines.push(`*${t.shade}*`);
       lines.push(`  Current: ${t.hooksStock} | Target: ${t.target}`);
@@ -420,7 +420,7 @@ async function handleHooksRestock(req: VercelRequest, res: VercelResponse) {
     if (shortages.length > 0) {
       lines.push("*⚠️ Still Short (request from Bhiwandi):*");
       for (const s of shortages) {
-        lines.push(`  ${s.shade} — needed: ${s.needed} packets (${s.needed * packetSize} units)`);
+        lines.push(`  ${s.shade}: needed: ${s.needed} packets (${s.needed * packetSize} units)`);
       }
     }
     const message = lines.join("\n");

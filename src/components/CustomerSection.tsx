@@ -34,7 +34,7 @@ export default function CustomerSection() {
 
   const customerLabelMap = React.useMemo(() => {
     return new Map(
-      searchResults.map(c => [`${c.customerId} — ${c.name}`, c])
+      searchResults.map(c => [`${c.customerId}: ${c.name}`, c])
     );
   }, [searchResults]);
 
@@ -194,14 +194,14 @@ export default function CustomerSection() {
             const c = customerLabelMap.get(opt);
             if (c) selectCustomer(c);
           }}
-          options={searchResults.map(r => `${r.customerId} — ${r.name}`)}
+          options={searchResults.map(r => `${r.customerId}: ${r.name}`)}
           placeholder="Search Customer Name..."
           style={si}
           renderOption={(opt, highlighted) => {
             const c = customerLabelMap.get(opt);
             return (
               <div style={{ padding: "10px 12px", borderBottom: "1px solid #f0f0f0", background: highlighted ? "#f0f4f8" : "#fff" }}>
-                <div style={{ fontWeight: 600, color: "#0f172a", fontSize: 13 }}>{c?.customerId} — {c?.name}</div>
+                <div style={{ fontWeight: 600, color: "#0f172a", fontSize: 13 }}>{c?.customerId}: {c?.name}</div>
                 <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>📞 {c?.phone}{c?.phone2 ? `, ${c.phone2}` : ""} • {c?.points} pts</div>
               </div>
             );
@@ -230,7 +230,7 @@ export default function CustomerSection() {
       {/* customer info */}
       {customer && (
         <div style={styles.customerInfo}>
-          <span>👤 {customer.customerId} — {customer.name} — {customer.points} pts</span>
+          <span>👤 {customer.customerId}: {customer.name}<br/>Points: {customer.points}</span>
           <button
             onClick={clearCustomer}
             style={{
@@ -262,7 +262,7 @@ export default function CustomerSection() {
       {/* new customer hint */}
       {isNew && (
         <div style={{ fontSize: 13, color: "#888", marginTop: 6, fontWeight: 500 }}>
-          🆕 New customer — will be registered on save.
+          🆕 New customer, will be registered on save.
         </div>
       )}
 

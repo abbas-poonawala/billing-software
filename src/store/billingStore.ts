@@ -177,7 +177,7 @@ function actions(set: any, get: any) {
         const profit = total - it.cost * it.qty;
         return { ...it, price, total, profit, priceOverridden: true };
       });
-      // don't run pricing rules — this is a manual override
+      // don't run pricing rules, this is a manual override
       set({ items });
     },
 

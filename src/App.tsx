@@ -240,7 +240,6 @@ export default function App() {
         throw new Error("Save failed: No bill number returned");
       }
       
-      search.clearCaches();
       clearDraft();
       store.resetBill();
       refreshBillNo();
@@ -447,9 +446,13 @@ export default function App() {
             value={store.entryQty}
             onChange={e => store.setEntryQty(Number(e.target.value))}
             onKeyDown={e => {
-              // Allow ArrowUp, ArrowDown, Escape to propagate for navigation
+              if (e.key === "Enter") {
+                e.preventDefault();
+                priceRef.current?.focus();
+                return;
+              }
               if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Escape") {
-                return; // Don't prevent - let it bubble up
+                return;
               }
             }}
             placeholder="Qty"
@@ -463,15 +466,19 @@ export default function App() {
             value={store.entryPrice}
             onChange={e => store.setEntryPrice(e.target.value)}
             onKeyDown={e => {
-
-              if (e.key === "Tab" || (e.ctrlKey && (e.key.toLowerCase() === "s" || e.key === "Enter"))) {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const price = Number(store.entryPrice);
+              if (price > 0) {
+                addItem(false); return;
+              }}
+              if (e.key === "Tab" || (e.ctrlKey && (e.key.toLowerCase() === "s"))) {
                 return; // Don't prevent - let it bubble up
               }
             }}
             placeholder="Price"
             style={{ ...styles.input, maxWidth: 100 }}
           />
-
           <button style={styles.button} onClick={() => addItem(false)}>Add</button>
         </div>
 
@@ -545,24 +552,34 @@ export default function App() {
             ↶ Undo Delete
           </button>
         )}
-        <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => setShowBillRetrieval(v => !v)}>🔍 Retrieve Bill</button>
-        <button style={{ ...styles.actionBtn, background: "#22e6ae" }} onClick={generateStoreRestock} disabled={restockLoading}>📋 Store Restock</button>
-        <button style={{ ...styles.actionBtn, background: "#25D366" }} onClick={sendWhatsApp} disabled={!isPhoneValid || store.items.length === 0}>📲 Send Bill</button>
-        <button style={styles.actionBtn} onClick={() => window.print()}>🖨 Print</button>
+        <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => setShowBillRetrieval(v => !v)}>Retrieve Bill</button>
+        <button style={{ ...styles.actionBtn, background: "#22e6ae" }} onClick={generateStoreRestock} disabled={restockLoading}>Restock List</button>
+        <button style={{ ...styles.actionBtn, background: "#25D366" }} onClick={sendWhatsApp} disabled={!isPhoneValid || store.items.length === 0}>Send Bill via WhatsApp</button>
+        <button style={styles.actionBtn} onClick={() => window.print()}>Print Bill</button>
         <button
           style={{ ...styles.actionBtn, opacity: store.savingProgress || store.items.length === 0 || !isPhoneValid ? 0.6 : 1 }}
           onClick={saveBill}
           disabled={store.savingProgress || store.items.length === 0 || !isPhoneValid}
         >
-          {store.savingProgress ? "⏳ Saving..." : "💾 Save"}
+          {store.savingProgress ? "Saving..." : "Save"}
         </button>
         <button
           style={{ ...styles.actionBtn, background: "#0a6ed1", opacity: store.savingProgress || store.items.length === 0 || !isPhoneValid ? 0.6 : 1 }}
           onClick={saveBillAndSend}
           disabled={store.savingProgress || store.items.length === 0 || !isPhoneValid}
         >
-          {store.savingProgress ? "⏳ Saving..." : "💾📲 Save & Send"}
+          {store.savingProgress ? "Saving..." : "Save & Send Bill"}
         </button>
+        <button style={{...styles.actionBtn, background: "#2563eb"}} 
+          onClick={async () => {
+            try {
+              await search.reloadItems(); showToast("Items refreshed", "success");
+            }
+            catch {
+              showToast("Failed to refresh Item List", "error");
+            }
+          }}
+          > Refresh Item List</button>
       </div>
 
       {/* bill retrieval panel */}

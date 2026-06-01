@@ -125,13 +125,11 @@ export function useItemSearch() {
   const needsShadeDropdown = shades.length > 1;
   const isKnownItem = allItems.some(i => i.toLowerCase() === entryItem.toLowerCase());
 
-  const clearCaches = () => {
-    priceCache.current = {};
-    shadeCache.current = {};
-    warnedKey.current = null;
-    sessionStorage.removeItem(ALL_ITEMS_KEY);
-    setAllItems([]);
-    setShades([]);
+  const reloadItems = async () => {
+    const items = await fetchItems();
+    setAllItems(items);
+    sessionStorage.setItem(ALL_ITEMS_KEY, JSON.stringify(items));
+    return items; 
   };
 
   const getShadesForItem = async (itemName: string): Promise<string[]> => {
@@ -152,7 +150,7 @@ export function useItemSearch() {
     needsShadeDropdown,
     isKnownItem,
     allShadesNumeric,
-    clearCaches,
+    reloadItems,
     getShadesForItem,
     shadeCache,
     priceCache,

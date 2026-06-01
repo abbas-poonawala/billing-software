@@ -446,6 +446,12 @@ export default function App() {
             min="1"
             value={store.entryQty}
             onChange={e => store.setEntryQty(Number(e.target.value))}
+            onKeyDown={e => {
+              // Allow ArrowUp, ArrowDown, Escape to propagate for navigation
+              if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Escape") {
+                return; // Don't prevent - let it bubble up
+              }
+            }}
             placeholder="Qty"
             style={{ ...styles.input, maxWidth: 80 }}
           />
@@ -456,6 +462,12 @@ export default function App() {
             inputMode="decimal"
             value={store.entryPrice}
             onChange={e => store.setEntryPrice(e.target.value)}
+            onKeyDown={e => {
+
+              if (e.key === "Tab" || (e.ctrlKey && (e.key.toLowerCase() === "s" || e.key === "Enter"))) {
+                return; // Don't prevent - let it bubble up
+              }
+            }}
             placeholder="Price"
             style={{ ...styles.input, maxWidth: 100 }}
           />

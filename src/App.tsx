@@ -549,7 +549,7 @@ export default function App() {
       <div className="no-print" style={styles.actions}>
         {store.lastDeletedItem && (
           <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => { store.undoDelete(); showToast("Item restored", "success"); }}>
-            ↶ Undo Delete
+            Undo Delete
           </button>
         )}
         <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => setShowBillRetrieval(v => !v)}>Retrieve Bill</button>
@@ -637,7 +637,7 @@ export default function App() {
                 onClick={() => loadBillForEdit(retrievedBill)}
                 style={{ marginTop: 12, padding: "8px 12px", width: "100%", fontSize: 13, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
               >
-                📋 Load for Edit
+                Load
               </button>
             </div>
           )}

@@ -71,52 +71,18 @@ function normalisePhone(phone?: string | null): string | null {
   return "+91" + digits.slice(-10);
 }
 
-// bill number with optimistic retry
-async function getNextBillNo(gsapi: any, maxRetries = 5): Promise<number> {
-  const settingsRange = "Settings!E1";
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const counterRes = await gsapi.spreadsheets.values.get({
-      spreadsheetId: STORE_SHEET_ID,
-      range: settingsRange,
-    });
-    let current = parseInt(counterRes.data.values?.[0]?.[0] || "0", 10);
-    if (isNaN(current)) current = 0;
-    const candidate = current + 1;
-
-    const existingRes = await gsapi.spreadsheets.values.get({
-      spreadsheetId: STORE_SHEET_ID,
-      range: "Bill!A:A",
-    });
-    const existingBills = existingRes.data.values?.flat().map(Number) || [];
-    if (existingBills.includes(candidate)) {
-      const actualMax = Math.max(...existingBills, 0);
-      const corrected = actualMax + 1;
-      await gsapi.spreadsheets.values.update({
-        spreadsheetId: STORE_SHEET_ID,
-        range: settingsRange,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[corrected]] },
-      });
-      continue;
-    }
-
-    await gsapi.spreadsheets.values.update({
-      spreadsheetId: STORE_SHEET_ID,
-      range: settingsRange,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[candidate]] },
-    });
-
-    const confirmRes = await gsapi.spreadsheets.values.get({
-      spreadsheetId: STORE_SHEET_ID,
-      range: settingsRange,
-    });
-    const confirmed = parseInt(confirmRes.data.values?.[0]?.[0] || "0", 10);
-    if (confirmed === candidate) return candidate;
-
-    await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 20));
-  }
-  throw new Error("failed to generate unique bill number");
+// bill number - single cashier, read max from Bill sheet
+async function getNextBillNo(gsapi: any): Promise<number> {
+  const existingRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: "Bill!A:A",
+  });
+  const existingBills = (existingRes.data.values || [])
+    .flat()
+    .map(Number)
+    .filter((n: any) => !isNaN(n));
+  const maxBillNo = existingBills.length > 0 ? Math.max(...existingBills) : 0;
+  return maxBillNo + 1;
 }
 
 function generateCustomerId(existingIds: string[]): string {
@@ -601,13 +567,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         });
       }
-      const counterRes = await gsapi.spreadsheets.values.get({
+      const billRes = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Settings!E1",
+        range: "Bill!A:A",
       });
-      let last = parseInt(counterRes.data.values?.[0]?.[0] || "0", 10);
-      if (isNaN(last)) last = 0;
-      return res.status(200).json({ billNo: last });
+      const existingBills = (billRes.data.values || [])
+        .flat()
+        .map(Number)
+        .filter((n) => !isNaN(n));
+      const lastBillNo = existingBills.length > 0 ? Math.max(...existingBills) : 0;
+      return res.status(200).json({ billNo: lastBillNo });
     }
 
     if (req.method === "POST") {

@@ -5,44 +5,44 @@
  *
  * Supported pricing modes:
  *  - Normal (default): price from sheet
- *  - Triosoft slab: 6+ units → ₹110, else ₹120
+ *  - Dewdrop slab: 6+ units → ₹110, else ₹120
  *  - GPay surcharge: +2% on final total
  *  - Manual override: cashier overrides price, flag kept
  */
 
 import type { BillItem, PaymentMode } from "../types";
 
-// triosoft slab pricing
+// dewdrop slab pricing
 
-const TRIOSOFT_ITEM = "triosoft";
-const TRIOSOFT_BULK_PRICE = 110;
-const TRIOSOFT_RETAIL_PRICE = 120;
-const TRIOSOFT_BULK_QTY = 6;
+const DEWDROP_ITEM = "dewdrop";
+const DEWDROP_BULK_PRICE = 110;
+const DEWDROP_RETAIL_PRICE = 120;
+const DEWDROP_BULK_QTY = 6;
 
 
-// re-applies triosoft slab pricing across the entire bill
+// re-applies dewdrop slab pricing across the entire bill
 
-export function applyTriosoftPricing(items: BillItem[]): BillItem[] {
-  const triosoftIdxs = items
+export function applyDewdropPricing(items: BillItem[]): BillItem[] {
+  const dewdropIdxs = items
     .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => item.item.toLowerCase() === TRIOSOFT_ITEM && !item.priceOverridden);
+    .filter(({ item }) => item.item.toLowerCase() === DEWDROP_ITEM && !item.priceOverridden);
 
-  if (triosoftIdxs.length === 0) return items.map(recalcItem);
+  if (dewdropIdxs.length === 0) return items.map(recalcItem);
 
-  const totalQty = triosoftIdxs.reduce((sum, { item }) => sum + item.qty, 0);
-  const bulkSlots = Math.floor(totalQty / TRIOSOFT_BULK_QTY) * TRIOSOFT_BULK_QTY;
+  const totalQty = dewdropIdxs.reduce((sum, { item }) => sum + item.qty, 0);
+  const bulkSlots = Math.floor(totalQty / DEWDROP_BULK_QTY) * DEWDROP_BULK_QTY;
 
   let slotsRemaining = bulkSlots;
   const updated = [...items];
 
-  for (const { item: trioItem, idx } of triosoftIdxs) {
-    const price = slotsRemaining >= trioItem.qty ? TRIOSOFT_BULK_PRICE : TRIOSOFT_RETAIL_PRICE;
+  for (const { item: dewdropItem, idx } of dewdropIdxs) {
+    const price = slotsRemaining >= dewdropItem.qty ? DEWDROP_BULK_PRICE : DEWDROP_RETAIL_PRICE;
     updated[idx] = {
-      ...trioItem,
+      ...dewdropItem,
       price,
-      originalPrice: trioItem.originalPrice ?? trioItem.price,
+      originalPrice: dewdropItem.originalPrice ?? dewdropItem.price,
     };
-    slotsRemaining -= trioItem.qty;
+    slotsRemaining -= dewdropItem.qty;
   }
 
   return updated.map(recalcItem);
@@ -95,7 +95,7 @@ export function recalcItem(item: BillItem): BillItem {
 
 
 export function applyAllPricingRules(items: BillItem[]): BillItem[] {
-  return applyTriosoftPricing(items);
+  return applyDewdropPricing(items);
 }
 
 // points calc

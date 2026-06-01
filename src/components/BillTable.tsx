@@ -3,13 +3,15 @@ import { useBillingStore } from "../store/billingStore";
 import EditableCell from "./EditableCell";
 import SearchDropdown from "./SearchDropdown";
 import { formatPrice } from "../utils/formatting";
+import { showToast } from "../utils/toast";
 import { fetchPrice, fetchCost, fetchShades } from "../services/api";
 
 interface Props {
   shadeCache: React.MutableRefObject<Record<string, string[]>>;
+  allItems: string[];
 }
 
-export default function BillTable({ shadeCache }: Props) {
+export default function BillTable({ shadeCache, allItems }: Props) {
   const {
     items,
     selectedRow,
@@ -40,12 +42,12 @@ export default function BillTable({ shadeCache }: Props) {
 
   const saveShadeEdit = async (idx: number) => {
     const newShade = editingShadeValue.trim();
-    if (!newShade) { alert("Shade cannot be empty"); return; }
+    if (!newShade) { showToast("Shade cannot be empty", "error"); return; }
     const itemName = items[idx].item;
 
     const matched = shadeOptions.find(s => s.toLowerCase() === newShade.toLowerCase());
     if (!matched) {
-      alert(`"${newShade}" not valid. Available: ${shadeOptions.join(", ")}`);
+      showToast(`"${newShade}" not valid. Available: ${shadeOptions.join(", ")}`, "error");
       setEditingShadeRow(null);
       return;
     }
@@ -59,7 +61,7 @@ export default function BillTable({ shadeCache }: Props) {
       updateItemShade(idx, matched, price || items[idx].price, cost || items[idx].cost);
       setEditingShadeRow(null);
     } catch {
-      alert("Could not validate shade.");
+      showToast("Could not validate shade.", "error");
     } finally {
       setValidating(false);
     }
@@ -94,7 +96,7 @@ export default function BillTable({ shadeCache }: Props) {
           {/* Item */}
           <td style={td}>
             {item.item}
-            {item.misc && <span className="no-print" style={{ fontSize: 10, color: "#e67e22" }}> (Misc)</span>}
+            {!allItems.includes(item.item) && <span className="no-print" style={{ fontSize: 10, color: "#e67e22" }}> (Misc)</span>}
           </td>
 
           {/* Shade */}
@@ -109,9 +111,9 @@ export default function BillTable({ shadeCache }: Props) {
                 )}
                 style={{ minWidth: 120, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 3 }}
                 disabled={validating}
+                autoFocus={true}
                 onKeyDownExtra={e => {
-                  if (e.key === "Enter") { e.preventDefault(); saveShadeEdit(idx); }
-                  if (e.key === "Escape") { setEditingShadeRow(null); }
+                  if (e.key === "Escape") { e.preventDefault(); setEditingShadeRow(null); }
                 }}
               />
             ) : (
@@ -143,7 +145,7 @@ export default function BillTable({ shadeCache }: Props) {
               value={`₹${formatPrice(item.price)}`}
               onSave={val => {
                 const n = Number(val.replace(/[^0-9.]/g, ""));
-                if (isNaN(n) || n <= 0) { alert("Price must be > 0"); return; }
+                if (isNaN(n) || n <= 0) return;
                 updateItemPrice(idx, n);
               }}
               validate={val => {
@@ -155,9 +157,6 @@ export default function BillTable({ shadeCache }: Props) {
               inputStyle={{ width: 80, textAlign: "right" }}
             >
               ₹{formatPrice(item.price)}
-              {item.priceOverridden && (
-                <span title={`Original: ₹${formatPrice(item.originalPrice)}`} style={{ fontSize: 10, color: "#f59e0b", marginLeft: 2 }}>*</span>
-              )}
             </EditableCell>
           </td>
 

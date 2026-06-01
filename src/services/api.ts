@@ -104,6 +104,8 @@ export interface SaveBillPayload {
   courierCharges: number;
   gpayCharges: number | null;
   paymentMode: string;
+  billDate: string;
+  billTime: string;
   customer: {
     name: string;
     phone: string;

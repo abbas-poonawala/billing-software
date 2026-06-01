@@ -103,14 +103,25 @@ export default function App() {
   }, [store.editingBillNo]);
 
   useEffect(() => {
-    const handle = () => { if (!store.editingBillNo) { refreshBillNo(); store.setBillTime(getISTNow().time); } };
+    const handle = () => { 
+      if (!store.editingBillNo) { 
+        refreshBillNo();
+        const { date, time } = getISTNow();
+        store.setBillTime(time);
+        store.setBillDate(date);
+      }
+    };
     window.addEventListener("focus", handle);
     return () => window.removeEventListener("focus", handle);
   }, [store.editingBillNo]);
 
   useEffect(() => {
     if (store.editingBillNo) return;
-    const interval = setInterval(() => store.setBillTime(getISTNow().time), 60000);
+    const interval = setInterval(() => {
+      const { date, time } = getISTNow();
+      store.setBillTime(time);
+      store.setBillDate(date);
+    }, 60000);
     return () => clearInterval(interval);
   }, [store.editingBillNo]);
 
@@ -127,10 +138,10 @@ export default function App() {
   // add item
   const addItem = async (fromBarcode = false) => {
     const { entryItem, entryShade, entryQty, entryPrice, entryCost } = store;
-    if (!entryItem?.trim()) { alert("Enter item name"); return; }
-    if (entryQty <= 0) { alert("Quantity must be > 0"); return; }
+    if (!entryItem?.trim()) { showToast("Enter item name", "error"); return; }
+    if (entryQty <= 0) { showToast("Quantity must be > 0", "error"); return; }
     const priceNum = Number(entryPrice);
-    if (isNaN(priceNum) || priceNum <= 0) { alert("Enter valid price (> 0)"); return; }
+    if (isNaN(priceNum) || priceNum <= 0) { showToast("Enter valid price (> 0)", "error"); return; }
     const costNum = Number(entryCost) || 0;
 
     const itemExists = search.allItems.some(i => i.toLowerCase() === entryItem.toLowerCase());
@@ -145,7 +156,7 @@ export default function App() {
     }
 
     const finalShade = entryShade || (isMisc ? "Misc" : "");
-    if (itemExists && !isMisc && !finalShade) { alert("Select a shade"); return; }
+    if (itemExists && !isMisc && !finalShade) { showToast("Select a shade", "error"); return; }
 
     const newItem: BillItem = recalcItem({
       item: entryItem,
@@ -179,7 +190,7 @@ export default function App() {
       setBarcode("");
       await addItem(true);
     } catch (err: any) {
-      alert(err.message || "Failed to lookup barcode");
+      showToast(err.message || "Failed to lookup barcode", "error");
       setBarcode("");
     } finally {
       setBarcodeLoading(false);
@@ -190,9 +201,9 @@ export default function App() {
   // save bill
   const saveBill = async (): Promise<boolean> => {
     if (store.items.length === 0 || store.saving) return false;
-    if (!isPhoneValid) { alert("Enter 10-digit phone"); return false; }
+    if (!isPhoneValid) { showToast("Enter 10-digit phone", "error"); return false; }
     if (store.customerType === "courier" && Number(store.courierCharges) <= 0) {
-      alert("Courier charges required for courier orders"); return false;
+      showToast("Courier charges required for courier orders", "error"); return false;
     }
     store.setSaving(true);
     store.setSavingProgress(true);
@@ -203,6 +214,8 @@ export default function App() {
         courierCharges: store.customerType === "courier" ? Number(store.courierCharges) : 0,
         gpayCharges: store.paymentMode === "GPay" ? totals.gpayCharge : null,
         paymentMode: store.paymentMode,
+        billDate: store.billDate,
+        billTime: store.billTime,
         customer: {
           name: store.customerName,
           phone: normalizePhone(store.phone),
@@ -221,6 +234,12 @@ export default function App() {
       };
 
       const response = await apiSaveBill(payload);
+      
+      // validate response has required data
+      if (!response?.billNo) {
+        throw new Error("Save failed: No bill number returned");
+      }
+      
       search.clearCaches();
       clearDraft();
       store.resetBill();
@@ -234,7 +253,7 @@ export default function App() {
         }
       }
       
-      showToast(`Bill #${store.nextBillNo} saved!`, "success");
+      showToast(`Bill #${response.billNo} saved!`, "success");
       return true;
     } catch (err: any) {
       showToast(err.message, "error");
@@ -267,7 +286,7 @@ export default function App() {
   const saveBillAndSend = async () => {
     if (!isPhoneValid || store.items.length === 0 || store.saving) return;
     if (store.customerType === "courier" && Number(store.courierCharges) <= 0) {
-      alert("Courier charges required"); return;
+      showToast("Courier charges required", "error"); return;
     }
     store.setSavingProgress(true);
     const blob = await captureBillImage();
@@ -306,6 +325,8 @@ export default function App() {
     store.setCourierCharges(bill.courierCharges ? String(bill.courierCharges) : "");
     store.setCustomerType(Number(bill.courierCharges) > 0 ? "courier" : "walk-in");
     store.setPaymentMode(bill.paymentMode || "Cash");
+    store.setBillDate(bill.date);
+    store.setBillTime(bill.time);
     store.setEditingBill(bill.billNo, bill.date, bill.time, bill.originalRowIndexes);
     store.setCustomer(null);
     setShowBillRetrieval(false);
@@ -319,12 +340,12 @@ export default function App() {
     setRestockLoading(true);
     try {
       const data = await fetchStoreRestock(input.trim());
-      if (!data.message) { alert(data.summary || "No restock needed"); return; }
+      if (!data.message) { showToast(data.summary || "No restock needed", "info"); return; }
       if (window.confirm(`Restock Summary:\n${data.summary}\n\nOpen WhatsApp?`) && data.waLink) {
         window.open(data.waLink, "_blank", "noopener,noreferrer");
       }
     } catch (err: any) {
-      alert(err.message || "Unknown error");
+      showToast(err.message || "Unknown error", "error");
     } finally {
       setRestockLoading(false);
     }
@@ -478,7 +499,7 @@ export default function App() {
             </tr>
           </thead>
           <tbody>
-            <BillTable shadeCache={search.shadeCache} />
+            <BillTable shadeCache={search.shadeCache} allItems={search.allItems} />
           </tbody>
         </table>
       </PrintBill>

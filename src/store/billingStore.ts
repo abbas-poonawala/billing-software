@@ -76,6 +76,7 @@ interface BillingState {
 
   setNextBillNo: (v: number) => void;
   setBillTime: (v: string) => void;
+  setBillDate: (v: string) => void;
   setEditingBill: (billNo: number | null, date?: string, time?: string, rowIndexes?: number[]) => void;
 
   setSaving: (v: boolean) => void;
@@ -89,10 +90,17 @@ interface BillingState {
   resetBill: () => void; // clear after save
 }
 
+// helper to get current IST date/time
+function getCurrentISTDateTime(): { date: string; time: string } {
+  const opts = { timeZone: "Asia/Kolkata" } as const;
+  return {
+    date: new Date().toLocaleDateString("en-IN", opts),
+    time: new Date().toLocaleTimeString("en-IN", { ...opts, hour: "2-digit", minute: "2-digit", hour12: true }),
+  };
+}
+
 // initial state
-const now = new Date();
-const ISTDate = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
-const ISTTime = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+const { date: initialDate, time: initialTime } = getCurrentISTDateTime();
 
 const INITIAL: Omit<BillingState, keyof ReturnType<typeof actions>> = {
   items: [],
@@ -111,8 +119,8 @@ const INITIAL: Omit<BillingState, keyof ReturnType<typeof actions>> = {
   courierCharges: "",
   amountReceived: "",
   nextBillNo: null,
-  billDate: ISTDate,
-  billTime: ISTTime,
+  billDate: initialDate,
+  billTime: initialTime,
   editingBillNo: null,
   originalBillDate: "",
   originalBillTime: "",
@@ -213,7 +221,7 @@ function actions(set: any, get: any) {
 
     setNextBillNo: (nextBillNo: number) => set({ nextBillNo }),
     setBillTime: (billTime: string) => set({ billTime }),
-
+    setBillDate: (billDate: string) => set({ billDate }),
     setEditingBill: (billNo: number | null, date = "", time = "", rowIndexes: number[] = []) =>
       set({ editingBillNo: billNo, originalBillDate: date, originalBillTime: time, originalRowIndexes: rowIndexes }),
 
@@ -226,7 +234,8 @@ function actions(set: any, get: any) {
 
     setPointsConfig: (pointsConfig: PointsConfig | null) => set({ pointsConfig }),
 
-    resetBill: () =>
+    resetBill: () => {
+      const { date: currentDate, time: currentTime } = getCurrentISTDateTime();
       set({
         items: [],
         entryItem: "",
@@ -246,7 +255,10 @@ function actions(set: any, get: any) {
         originalBillDate: "",
         originalBillTime: "",
         originalRowIndexes: [],
-      }),
+        billDate: currentDate,
+        billTime: currentTime,
+      });
+    },
   };
 }
 

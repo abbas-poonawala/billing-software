@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { showToast } from "../utils/toast";
 
 interface Props {
   value: string | number;
@@ -46,7 +47,7 @@ export default function EditableCell({
     if (validate) {
       const err = validate(trimmed);
       if (err) {
-        alert(err);
+        showToast(err, "error");
         return;
       }
     }
@@ -63,6 +64,7 @@ export default function EditableCell({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") { e.preventDefault(); commit(); }
     if (e.key === "Escape") { e.preventDefault(); cancel(); }
+    // Allow Tab and other global shortcuts to propagate
   };
 
   if (editing) {
@@ -75,6 +77,7 @@ export default function EditableCell({
         onChange={e => setEditedValue(e.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
+        onClick={e => e.stopPropagation()}
         style={{
           width: "80px",
           padding: "2px 4px",

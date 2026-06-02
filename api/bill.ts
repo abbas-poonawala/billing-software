@@ -2,8 +2,26 @@
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// constants
-const BILL_COLUMNS = {
+// sheet names
+const BILLS_SHEET = "Bills";
+const BILL_ITEMS_SHEET = "BillItems";
+const POINTS_CONFIG_SHEET = "PointsConfig";
+
+// column indices
+const BILLS_COLUMNS = {
+  BILL_NO: 0,
+  CUSTOMER_ID: 1,
+  DATE: 2,
+  TIME: 3,
+  PAYMENT_MODE: 4,
+  COURIER_CHARGES: 5,
+  GPAY_CHARGES: 6,
+  FINAL_TOTAL: 7,
+  TOTAL_PROFIT: 8,
+  LAST_UPDATED: 9,
+} as const;
+
+const BILL_ITEMS_COLUMNS = {
   BILL_NO: 0,
   ITEM: 1,
   SHADE: 2,
@@ -11,14 +29,6 @@ const BILL_COLUMNS = {
   PRICE: 4,
   PROFIT: 5,
   TOTAL: 6,
-  COURIER: 7,
-  GPAY_CHARGES: 8,
-  FINAL_TOTAL: 9,
-  CUSTOMER_ID: 10,
-  DATE: 11,
-  TIME: 12,
-  LAST_UPDATED: 13,
-  PAYMENT_MODE: 14,
 } as const;
 
 const CUSTOMER_COLUMNS = {
@@ -33,12 +43,13 @@ const CUSTOMER_COLUMNS = {
   POINTS: 8,
 } as const;
 
+// google auth
 const auth = new google.auth.GoogleAuth({
   credentials: (() => {
     try {
       return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
     } catch (err) {
-      console.error("[init_error] Failed to parse service account:", err);
+      console.error("[init_error] failed to parse service account:", err);
       throw new Error("Invalid google service account credentials.");
     }
   })(),
@@ -47,7 +58,6 @@ const auth = new google.auth.GoogleAuth({
 
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
-
 
 // helpers
 function getISTDateTime() {
@@ -71,11 +81,11 @@ function normalisePhone(phone?: string | null): string | null {
   return "+91" + digits.slice(-10);
 }
 
-// bill number - single cashier, read max from Bill sheet
+// bill number
 async function getNextBillNo(gsapi: any): Promise<number> {
   const existingRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
-    range: "Bill!A:A",
+    range: `${BILLS_SHEET}!A:A`,
   });
   const existingBills = (existingRes.data.values || [])
     .flat()
@@ -85,6 +95,7 @@ async function getNextBillNo(gsapi: any): Promise<number> {
   return maxBillNo + 1;
 }
 
+// customer
 function generateCustomerId(existingIds: string[]): string {
   const ids = existingIds
     .filter((id) => id?.startsWith("LMS-"))
@@ -113,20 +124,133 @@ async function findCustomerByPhone(gsapi: any, phone: string): Promise<any | nul
   return null;
 }
 
+// points configuration
+async function ensurePointsConfigSheet(gsapi: any) {
+  const sheetMeta = await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  const sheetExists = (sheetMeta.data.sheets || []).some(
+    (s: any) => s.properties?.title === POINTS_CONFIG_SHEET
+  );
+  if (!sheetExists) {
+    await gsapi.spreadsheets.batchUpdate({
+      spreadsheetId: STORE_SHEET_ID,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: POINTS_CONFIG_SHEET } } }],
+      },
+    });
+    // default config
+    const defaultConfig = [
+      ["EarnRate", 0.01],
+      ["RedeemRate", 0.5],
+      ["MinRedeem", 50],
+      ["SpendBonus", "2000:0.25,5000:0.5"],
+      ["BillBonus", "5:1,10:1"],
+    ];
+    await gsapi.spreadsheets.values.update({
+      spreadsheetId: STORE_SHEET_ID,
+      range: `${POINTS_CONFIG_SHEET}!A1:B${defaultConfig.length}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: defaultConfig },
+    });
+  }
+}
+
+async function getPointsConfig(gsapi: any): Promise<{
+  earnRate: number;
+  redeemRate: number;
+  minRedeem: number;
+  spendBonuses: Array<{ spend: number; points: number }>;
+  billBonuses: Array<{ bills: number; points: number }>;
+}> {
+  await ensurePointsConfigSheet(gsapi);
+  const res = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${POINTS_CONFIG_SHEET}!A:B`,
+  });
+  const rows = res.data.values || [];
+  let earnRate = 0.01;
+  let redeemRate = 0.5;
+  let minRedeem = 50;
+  let spendBonusStr = "";
+  let billBonusStr = "";
+  for (const row of rows) {
+    const key = row[0]?.toString().toLowerCase();
+    const val = row[1]?.toString();
+    if (key === "earnrate") earnRate = parseFloat(val) || 0.01;
+    if (key === "redeemrate") redeemRate = parseFloat(val) || 0.5;
+    if (key === "minredeem") minRedeem = parseInt(val) || 50;
+    if (key === "spendbonus") spendBonusStr = val || "";
+    if (key === "billbonus") billBonusStr = val || "";
+  }
+  // parse spend bonuses e.g., "2000:0.25,5000:0.5"
+  const spendBonuses: Array<{ spend: number; points: number }> = [];
+  if (spendBonusStr) {
+    spendBonusStr.split(",").forEach((item) => {
+      const [spend, points] = item.split(":");
+      if (spend && points) {
+        spendBonuses.push({ spend: parseFloat(spend), points: parseFloat(points) });
+      }
+    });
+  }
+  // parse bill bonuses e.g., "5:1,10:1"
+  const billBonuses: Array<{ bills: number; points: number }> = [];
+  if (billBonusStr) {
+    billBonusStr.split(",").forEach((item) => {
+      const [bills, points] = item.split(":");
+      if (bills && points) {
+        billBonuses.push({ bills: parseInt(bills), points: parseFloat(points) });
+      }
+    });
+  }
+  return { earnRate, redeemRate, minRedeem, spendBonuses, billBonuses };
+}
+
+function calculatePointsEarned(
+  spend: number,
+  currentTotalBills: number,   // old bill count before this purchase
+  config: {
+    earnRate: number;
+    spendBonuses: Array<{ spend: number; points: number }>;
+    billBonuses: Array<{ bills: number; points: number }>;
+  }
+): number {
+  // base points
+  let points = Math.floor(spend) * config.earnRate;
+  // spend bonuses (additive for all thresholds crossed)
+  for (const bonus of config.spendBonuses) {
+    if (spend >= bonus.spend) {
+      points += bonus.points;
+    }
+  }
+  // bill bonuses based on new bill count (current + 1)
+  const newBillCount = currentTotalBills + 1;
+  for (const bonus of config.billBonuses) {
+    if (newBillCount >= bonus.bills) {
+      points += bonus.points;
+    }
+  }
+  return points;
+}
+
+// upsert customer with points config
 async function upsertCustomer(
   gsapi: any,
   customer: any,
   date: string,
   finalTotal: number,
-  earnRate: number
+  _earnRateIgnored: number // kept for compatibility, not used
 ): Promise<string> {
   const phoneNormalised = normalisePhone(customer.phone);
   if (!phoneNormalised) throw new Error("Valid customer phone required");
 
+  const config = await getPointsConfig(gsapi);
   const existing = await findCustomerByPhone(gsapi, customer.phone);
-  const pointsEarned = Math.floor(finalTotal * earnRate);
 
   if (!existing) {
+    // new customer: no previous bills, currentTotalBills = 0
+    const pointsEarned = calculatePointsEarned(finalTotal, 0, config);
     const allIdsRes = await gsapi.spreadsheets.values.get({
       spreadsheetId: STORE_SHEET_ID,
       range: "Customers!A:A",
@@ -159,6 +283,7 @@ async function upsertCustomer(
   const currentSpend = Number(row[CUSTOMER_COLUMNS.EXPENDITURE]) || 0;
   const currentBills = Number(row[CUSTOMER_COLUMNS.TOTAL_BILLS]) || 0;
   const currentPoints = Number(row[CUSTOMER_COLUMNS.POINTS]) || 0;
+  const pointsEarned = calculatePointsEarned(finalTotal, currentBills, config);
   const newPoints = currentPoints + pointsEarned;
   const updateRow = rowIndex + 2;
 
@@ -191,6 +316,7 @@ async function upsertCustomer(
   return customerId;
 }
 
+// stock and loft helpers
 async function getPacketSize(gsapi: any, article: string): Promise<number> {
   try {
     const res = await gsapi.spreadsheets.values.get({
@@ -208,7 +334,6 @@ async function getPacketSize(gsapi: any, article: string): Promise<number> {
 }
 
 async function findLoftStockEntry(gsapi: any, item: string, shade: string): Promise<any | null> {
-  // try item sheet
   try {
     const res = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -225,7 +350,6 @@ async function findLoftStockEntry(gsapi: any, item: string, shade: string): Prom
       return { sheetName: item, rowIndex, individuals, packets, packetSize, isMisc: false };
     }
   } catch {}
-  // try miscellaneous sheet
   try {
     const miscRes = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
@@ -396,15 +520,28 @@ async function getLoftFallbackLogForBill(gsapi: any, billNo: number): Promise<an
   }
 }
 
-async function ensureBillSheetColumns(gsapi: any) {
+// sheet setup for bills 
+async function ensureBillsSheet(gsapi: any) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
-    fields: "sheets.properties(title,gridProperties,sheetId)",
+    fields: "sheets.properties(title,sheetId,gridProperties)",
   });
-  const billSheet = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === "Bill");
-  if (!billSheet) return;
-  const currentCols = billSheet.properties?.gridProperties?.columnCount || 0;
-  const requiredCols = Object.keys(BILL_COLUMNS).length;
+  let billsSheet = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILLS_SHEET);
+  if (!billsSheet) {
+    await gsapi.spreadsheets.batchUpdate({
+      spreadsheetId: STORE_SHEET_ID,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: BILLS_SHEET } } }],
+      },
+    });
+  }
+  // ensure columns
+  billsSheet = (await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties(title,sheetId,gridProperties)",
+  })).data.sheets?.find((s: any) => s.properties?.title === BILLS_SHEET);
+  const currentCols = billsSheet?.properties?.gridProperties?.columnCount || 0;
+  const requiredCols = Object.keys(BILLS_COLUMNS).length;
   if (currentCols < requiredCols) {
     await gsapi.spreadsheets.batchUpdate({
       spreadsheetId: STORE_SHEET_ID,
@@ -413,7 +550,7 @@ async function ensureBillSheetColumns(gsapi: any) {
           {
             updateSheetProperties: {
               properties: {
-                sheetId: billSheet.properties?.sheetId,
+                sheetId: billsSheet.properties?.sheetId,
                 gridProperties: { columnCount: requiredCols },
               },
               fields: "gridProperties.columnCount",
@@ -422,20 +559,89 @@ async function ensureBillSheetColumns(gsapi: any) {
         ],
       },
     });
-    const expectedHeaders = [
-      "bill no", "item", "shade / variant", "qty", "price", "profit", "total", "courier charges", "gpay charges", "final total", "customer id", "date", "time", "last updated", "payment mode",
-    ];
-    for (let i = 0; i < expectedHeaders.length; i++) {
+  }
+  // set headers if missing
+  const headers = [
+    "bill no", "customer id", "date", "time", "payment mode",
+    "courier charges", "gpay charges", "final total", "total profit", "last updated",
+  ];
+  const headerRange = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILLS_SHEET}!A1:J1`,
+  });
+  if (!headerRange.data.values || headerRange.data.values.length === 0) {
+    for (let i = 0; i < headers.length; i++) {
       await gsapi.spreadsheets.values.update({
         spreadsheetId: STORE_SHEET_ID,
-        range: `Bill!${String.fromCharCode(65 + i)}1`,
+        range: `${BILLS_SHEET}!${String.fromCharCode(65 + i)}1`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[expectedHeaders[i]]] },
+        requestBody: { values: [[headers[i]]] },
       });
     }
   }
 }
 
+async function ensureBillItemsSheet(gsapi: any) {
+  const sheetMeta = await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties(title,sheetId,gridProperties)",
+  });
+  let itemsSheet = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILL_ITEMS_SHEET);
+  if (!itemsSheet) {
+    await gsapi.spreadsheets.batchUpdate({
+      spreadsheetId: STORE_SHEET_ID,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: BILL_ITEMS_SHEET } } }],
+      },
+    });
+  }
+  itemsSheet = (await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties(title,sheetId,gridProperties)",
+  })).data.sheets?.find((s: any) => s.properties?.title === BILL_ITEMS_SHEET);
+  const currentCols = itemsSheet?.properties?.gridProperties?.columnCount || 0;
+  const requiredCols = Object.keys(BILL_ITEMS_COLUMNS).length;
+  if (currentCols < requiredCols) {
+    await gsapi.spreadsheets.batchUpdate({
+      spreadsheetId: STORE_SHEET_ID,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: {
+                sheetId: itemsSheet.properties?.sheetId,
+                gridProperties: { columnCount: requiredCols },
+              },
+              fields: "gridProperties.columnCount",
+            },
+          },
+        ],
+      },
+    });
+  }
+  const headers = ["bill no", "item", "shade / variant", "qty", "price", "profit", "total"];
+  const headerRange = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILL_ITEMS_SHEET}!A1:G1`,
+  });
+  if (!headerRange.data.values || headerRange.data.values.length === 0) {
+    for (let i = 0; i < headers.length; i++) {
+      await gsapi.spreadsheets.values.update({
+        spreadsheetId: STORE_SHEET_ID,
+        range: `${BILL_ITEMS_SHEET}!${String.fromCharCode(65 + i)}1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[headers[i]]] },
+      });
+    }
+  }
+}
+
+async function ensureSheets(gsapi: any) {
+  await ensureBillsSheet(gsapi);
+  await ensureBillItemsSheet(gsapi);
+}
+
+// profit and cost
 async function getCostMap(gsapi: any): Promise<Map<string, number>> {
   const profitRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -469,39 +675,146 @@ function calculateItemProfit(item: any, costMap: Map<string, number>): { total: 
   return { total, profit };
 }
 
-function createBillRow(
+function createBillItemRow(billNo: number, item: any, profit: number, total: number): any[] {
+  return [billNo, item.item, item.shade, item.qty, item.price, profit, total];
+}
+
+function createBillSummaryRow(
   billNo: number,
-  item: any,
-  profit: number,
-  total: number,
-  courierCharges: number,
-  gpayCharges: number | null,
-  finalTotal: number,
   customerId: string,
   date: string,
   time: string,
-  timestamp: string,
-  paymentMode: string
+  paymentMode: string,
+  courierCharges: number,
+  gpayCharges: number | null,
+  finalTotal: number,
+  totalProfit: number,
+  lastUpdated: string
 ): any[] {
   return [
     billNo,
-    item.item,
-    item.shade,
-    item.qty,
-    item.price,
-    profit,
-    total,
-    courierCharges > 0 ? courierCharges : "",
-    gpayCharges !== null ? gpayCharges : "",
-    finalTotal,
     customerId,
     date,
     time,
-    timestamp,
     paymentMode,
+    courierCharges > 0 ? courierCharges : "",
+    gpayCharges !== null ? gpayCharges : "",
+    finalTotal,
+    totalProfit,
+    lastUpdated,
   ];
 }
 
+// get bill by number 
+async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: any; items: any[] } | null> {
+  const billsRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILLS_SHEET}!A:J`,
+  });
+  const allBills = billsRes.data.values || [];
+  const summaryRow = allBills.find((row: any) => Number(row[BILLS_COLUMNS.BILL_NO]) === billNo);
+  if (!summaryRow) return null;
+
+  const itemsRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILL_ITEMS_SHEET}!A:G`,
+  });
+  const allItems = itemsRes.data.values || [];
+  const itemRows = allItems.filter((row: any) => Number(row[BILL_ITEMS_COLUMNS.BILL_NO]) === billNo);
+
+  const items = itemRows.map((row: any) => ({
+    item: row[BILL_ITEMS_COLUMNS.ITEM],
+    shade: row[BILL_ITEMS_COLUMNS.SHADE],
+    qty: Number(row[BILL_ITEMS_COLUMNS.QTY]) || 0,
+    price: Number(row[BILL_ITEMS_COLUMNS.PRICE]) || 0,
+    total: Number(row[BILL_ITEMS_COLUMNS.TOTAL]) || 0,
+    profit: Number(row[BILL_ITEMS_COLUMNS.PROFIT]) || 0,
+    cost: 0,
+  }));
+
+  return {
+    summary: {
+      billNo: Number(summaryRow[BILLS_COLUMNS.BILL_NO]),
+      customerId: summaryRow[BILLS_COLUMNS.CUSTOMER_ID],
+      date: summaryRow[BILLS_COLUMNS.DATE],
+      time: summaryRow[BILLS_COLUMNS.TIME],
+      paymentMode: summaryRow[BILLS_COLUMNS.PAYMENT_MODE] || "cash",
+      courierCharges: Number(summaryRow[BILLS_COLUMNS.COURIER_CHARGES]) || 0,
+      gpayCharges: summaryRow[BILLS_COLUMNS.GPAY_CHARGES] ? Number(summaryRow[BILLS_COLUMNS.GPAY_CHARGES]) : null,
+      finalTotal: Number(summaryRow[BILLS_COLUMNS.FINAL_TOTAL]) || 0,
+      totalProfit: Number(summaryRow[BILLS_COLUMNS.TOTAL_PROFIT]) || 0,
+      lastUpdated: summaryRow[BILLS_COLUMNS.LAST_UPDATED],
+    },
+    items,
+  };
+}
+
+// delete bill rows 
+async function deleteBillRows(gsapi: any, billNo: number) {
+  const sheetMeta = await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties(sheetId,title)",
+  });
+  const billsSheetObj = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILLS_SHEET);
+  const itemsSheetObj = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILL_ITEMS_SHEET);
+  if (!billsSheetObj || !itemsSheetObj) return;
+
+  const billsRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILLS_SHEET}!A:J`,
+  });
+  const billsRows = billsRes.data.values || [];
+  const billRowIndices: number[] = [];
+  for (let i = 0; i < billsRows.length; i++) {
+    if (Number(billsRows[i][BILLS_COLUMNS.BILL_NO]) === billNo) {
+      billRowIndices.push(i);
+    }
+  }
+
+  const itemsRes = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${BILL_ITEMS_SHEET}!A:G`,
+  });
+  const itemsRows = itemsRes.data.values || [];
+  const itemRowIndices: number[] = [];
+  for (let i = 0; i < itemsRows.length; i++) {
+    if (Number(itemsRows[i][BILL_ITEMS_COLUMNS.BILL_NO]) === billNo) {
+      itemRowIndices.push(i);
+    }
+  }
+
+  const requests = [];
+  for (const idx of billRowIndices.sort((a, b) => b - a)) {
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId: billsSheetObj.properties?.sheetId,
+          dimension: "ROWS",
+          startIndex: idx,
+          endIndex: idx + 1,
+        },
+      },
+    });
+  }
+  for (const idx of itemRowIndices.sort((a, b) => b - a)) {
+    requests.push({
+      deleteDimension: {
+        range: {
+          sheetId: itemsSheetObj.properties?.sheetId,
+          dimension: "ROWS",
+          startIndex: idx,
+          endIndex: idx + 1,
+        },
+      },
+    });
+  }
+  if (requests.length > 0) {
+    await gsapi.spreadsheets.batchUpdate({
+      spreadsheetId: STORE_SHEET_ID,
+      requestBody: { requests },
+    });
+  }
+}
 
 // main handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -516,62 +829,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!billNo || billNo <= 0) {
           return res.status(400).json({ error: "invalid bill number" });
         }
-        const billRes = await gsapi.spreadsheets.values.get({
-          spreadsheetId: STORE_SHEET_ID,
-          range: "Bill!A:O",
-        });
-        const allRows = billRes.data.values || [];
-        const billRows = allRows.filter((row: any) => Number(row[BILL_COLUMNS.BILL_NO]) === billNo);
-        if (billRows.length === 0) {
+        const billData = await getBillByNumber(gsapi, billNo);
+        if (!billData) {
           return res.status(404).json({ error: "bill not found" });
         }
-        const firstRow = billRows[0];
-        const items = billRows.map((row: any) => ({
-          item: row[BILL_COLUMNS.ITEM],
-          shade: row[BILL_COLUMNS.SHADE],
-          qty: Number(row[BILL_COLUMNS.QTY]) || 0,
-          price: Number(row[BILL_COLUMNS.PRICE]) || 0,
-          total: Number(row[BILL_COLUMNS.TOTAL]) || 0,
-          profit: Number(row[BILL_COLUMNS.PROFIT]) || 0,
-          cost: 0,
-        }));
+        const { summary, items } = billData;
+
         let customerName = "unknown";
         let customerPhone = "";
-        const customerId = firstRow[BILL_COLUMNS.CUSTOMER_ID];
-        if (customerId) {
+        if (summary.customerId) {
           const custRes = await gsapi.spreadsheets.values.get({
             spreadsheetId: STORE_SHEET_ID,
             range: "Customers!A:C",
           });
           const custRows = custRes.data.values || [];
-          const custRow = custRows.find((r: any) => r[0] === customerId);
+          const custRow = custRows.find((r: any) => r[0] === summary.customerId);
           if (custRow) {
             customerName = custRow[1] || "unknown";
             customerPhone = custRow[2] || "";
           }
         }
+
         return res.status(200).json({
           bill: {
-            billNo,
+            billNo: summary.billNo,
             items,
-            customerId,
+            customerId: summary.customerId,
             customerName,
             customerPhone,
-            date: firstRow[BILL_COLUMNS.DATE] || "",
-            time: firstRow[BILL_COLUMNS.TIME] || "",
-            courierCharges: Number(firstRow[BILL_COLUMNS.COURIER]) || 0,
-            paymentMode: firstRow[BILL_COLUMNS.PAYMENT_MODE] || "cash",
-            gpayCharges: firstRow[BILL_COLUMNS.GPAY_CHARGES] ? Number(firstRow[BILL_COLUMNS.GPAY_CHARGES]) : null,
-            finalTotal: Number(firstRow[BILL_COLUMNS.FINAL_TOTAL]) || 0,
-            lastUpdated: firstRow[BILL_COLUMNS.LAST_UPDATED] || "",
+            date: summary.date,
+            time: summary.time,
+            courierCharges: summary.courierCharges,
+            paymentMode: summary.paymentMode,
+            gpayCharges: summary.gpayCharges,
+            finalTotal: summary.finalTotal,
+            lastUpdated: summary.lastUpdated,
           },
         });
       }
-      const billRes = await gsapi.spreadsheets.values.get({
+
+      // get last bill number
+      const billsRes = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Bill!A:A",
+        range: `${BILLS_SHEET}!A:A`,
       });
-      const existingBills = (billRes.data.values || [])
+      const existingBills = (billsRes.data.values || [])
         .flat()
         .map(Number)
         .filter((n) => !isNaN(n));
@@ -592,7 +894,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           paymentMode = "cash",
           gpayCharges = null,
           customer,
-          earnRate,
           originalDate,
           originalTime,
         } = req.body;
@@ -610,24 +911,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { date, time } = getISTDateTime();
         const timestamp = `${date} ${time}`;
 
-        // fetch old bill rows and fallback logs
-        const billRes = await gsapi.spreadsheets.values.get({
-          spreadsheetId: STORE_SHEET_ID,
-          range: "Bill!A:O",
-        });
-        const allRows = billRes.data.values || [];
-        const oldBillRows = allRows.filter((row: any) => Number(row[BILL_COLUMNS.BILL_NO]) === originalBillNo);
-        if (oldBillRows.length === 0) {
+        const oldBillData = await getBillByNumber(gsapi, originalBillNo);
+        if (!oldBillData) {
           return res.status(404).json({ error: "original bill not found" });
         }
-        const oldRowIndexes = oldBillRows.map((_, idx) => idx + 1);
-        const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
+        const oldItems = oldBillData.items;
+        const oldSummary = oldBillData.summary;
 
         // reverse old stock
-        for (const row of oldBillRows) {
-          const itemName = row[BILL_COLUMNS.ITEM];
-          const shadeName = row[BILL_COLUMNS.SHADE];
-          const qty = Number(row[BILL_COLUMNS.QTY]) || 0;
+        const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
+        for (const item of oldItems) {
+          const itemName = item.item;
+          const shadeName = item.shade;
+          const qty = item.qty;
           if (!itemName || !shadeName || qty === 0) continue;
 
           const storeInfo = await getStoreStock(gsapi, itemName, shadeName);
@@ -643,7 +939,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           const logEntry = fallbackLog.find(
             (log: any) =>
-              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() && log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
+              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
+              log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
           );
           if (logEntry) {
             const individualsUsed = Number(logEntry[5]) || 0;
@@ -677,7 +974,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         // reverse old customer points
-        const oldCustomerId = oldBillRows[0][BILL_COLUMNS.CUSTOMER_ID];
+        const oldCustomerId = oldSummary.customerId;
         if (oldCustomerId) {
           const custRes = await gsapi.spreadsheets.values.get({
             spreadsheetId: STORE_SHEET_ID,
@@ -690,8 +987,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const oldSpend = Number(row[CUSTOMER_COLUMNS.EXPENDITURE]) || 0;
             const oldBills = Number(row[CUSTOMER_COLUMNS.TOTAL_BILLS]) || 0;
             const oldPoints = Number(row[CUSTOMER_COLUMNS.POINTS]) || 0;
-            const oldFinalTotal = Number(oldBillRows[0][BILL_COLUMNS.FINAL_TOTAL]) || 0;
-            const oldPointsEarned = Math.floor(oldFinalTotal * earnRate);
+            const oldFinalTotal = oldSummary.finalTotal;
+            // we need the old points earned for this bill. Since we don't store it, we recalc with current config.
+            const config = await getPointsConfig(gsapi);
+            const oldPointsEarned = calculatePointsEarned(oldFinalTotal, oldBills - 1, config);
             await gsapi.spreadsheets.values.update({
               spreadsheetId: STORE_SHEET_ID,
               range: `Customers!G${custIdx + 2}:I${custIdx + 2}`,
@@ -704,31 +1003,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         // delete old bill rows
-        const sheetMeta = await gsapi.spreadsheets.get({
-          spreadsheetId: STORE_SHEET_ID,
-          fields: "sheets.properties(sheetId,title)",
-        });
-        const billSheetObj = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === "Bill");
-        if (billSheetObj) {
-          const sheetId = billSheetObj.properties?.sheetId;
-          if (sheetId && typeof sheetId === "number") {
-            const sortedIndexes = [...oldRowIndexes].sort((a, b) => b - a);
-            const requests = sortedIndexes.map((idx) => ({
-              deleteDimension: {
-                range: {
-                  sheetId,
-                  dimension: "ROWS",
-                  startIndex: idx - 1,
-                  endIndex: idx,
-                },
-              },
-            }));
-            await gsapi.spreadsheets.batchUpdate({
-              spreadsheetId: STORE_SHEET_ID,
-              requestBody: { requests },
-            });
-          }
-        }
+        await deleteBillRows(gsapi, originalBillNo);
 
         // validate new items stock
         const stockInfos = [];
@@ -746,69 +1021,136 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // deduct new stock
         const fallbackUsage = [];
-        for (const info of stockInfos) {
-          if (info.misc) continue;
-          let remaining = info.qty;
-          let usedStore = 0;
-          if (info.storeInfo.rowIndex !== -1 && info.storeInfo.stock > 0) {
-            usedStore = await deductStoreStock(gsapi, info.item, info.shade, info.storeInfo.rowIndex, info.storeInfo.stock, remaining, timestamp);
-            remaining -= usedStore;
+        const deductedStore = [];
+        const deductedLoft = [];
+        try {
+          for (const info of stockInfos) {
+            if (info.misc) continue;
+            let remaining = info.qty;
+            let usedStore = 0;
+            if (info.storeInfo.rowIndex !== -1 && info.storeInfo.stock > 0) {
+              usedStore = await deductStoreStock(gsapi, info.item, info.shade, info.storeInfo.rowIndex, info.storeInfo.stock, remaining, timestamp);
+              remaining -= usedStore;
+              deductedStore.push({ info, usedStore });
+            }
+            if (remaining > 0 && info.loftInfo) {
+              const loftDetails = await deductLoftStock(gsapi, info.loftInfo, remaining);
+              fallbackUsage.push({
+                item: info.item,
+                shade: info.shade,
+                individualsUsed: loftDetails.individualsUsed,
+                packetsOpened: loftDetails.packetsOpened,
+              });
+              deductedLoft.push({ info, loftDetails });
+              await logLoftFallback(
+                gsapi,
+                originalBillNo,
+                info.item,
+                info.shade,
+                remaining,
+                loftDetails.individualsUsed,
+                loftDetails.packetsOpened,
+                loftDetails.leftoverBalls,
+                info.loftInfo.packetSize,
+                timestamp
+              );
+            }
           }
-          if (remaining > 0 && info.loftInfo) {
-            const loftDetails = await deductLoftStock(gsapi, info.loftInfo, remaining);
-            fallbackUsage.push({
-              item: info.item,
-              shade: info.shade,
-              individualsUsed: loftDetails.individualsUsed,
-              packetsOpened: loftDetails.packetsOpened,
+        } catch (err) {
+          // rollback
+          for (const { info, usedStore } of deductedStore) {
+            const newStock = info.storeInfo.stock + usedStore;
+            await gsapi.spreadsheets.values.update({
+              spreadsheetId: STORE_SHEET_ID,
+              range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[newStock]] },
             });
-            await logLoftFallback(
-              gsapi,
-              originalBillNo,
-              info.item,
-              info.shade,
-              remaining,
-              loftDetails.individualsUsed,
-              loftDetails.packetsOpened,
-              loftDetails.leftoverBalls,
-              info.loftInfo.packetSize,
-              timestamp
-            );
           }
+          for (const { info, loftDetails } of deductedLoft) {
+            const loftEntry = info.loftInfo;
+            const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
+            const newPackets = loftEntry.packets + loftDetails.packetsOpened;
+            const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
+            await gsapi.spreadsheets.values.update({
+              spreadsheetId: LOFT_SHEET_ID,
+              range,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[newIndiv, newPackets]] },
+            });
+          }
+          return res.status(500).json({ error: "stock deduction failed, rolled back" });
         }
 
-        // upsert customer
-        const newCustomerId = await upsertCustomer(gsapi, customer, originalDate, finalTotal, earnRate);
+        // upsert customer (ignores earnRate parameter)
+        let customerId;
+        try {
+          // pass dummy earnRate (0) – config will be read inside
+          customerId = await upsertCustomer(gsapi, customer, originalDate, finalTotal, 0);
+        } catch (err: any) {
+          // rollback stock
+          for (const { info, usedStore } of deductedStore) {
+            const newStock = info.storeInfo.stock + usedStore;
+            await gsapi.spreadsheets.values.update({
+              spreadsheetId: STORE_SHEET_ID,
+              range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[newStock]] },
+            });
+          }
+          for (const { info, loftDetails } of deductedLoft) {
+            const loftEntry = info.loftInfo;
+            const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
+            const newPackets = loftEntry.packets + loftDetails.packetsOpened;
+            const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
+            await gsapi.spreadsheets.values.update({
+              spreadsheetId: LOFT_SHEET_ID,
+              range,
+              valueInputOption: "USER_ENTERED",
+              requestBody: { values: [[newIndiv, newPackets]] },
+            });
+          }
+          return res.status(500).json({ error: `customer creation failed: ${err.message}` });
+        }
 
         // write new bill rows
         const costMap = await getCostMap(gsapi);
-        await ensureBillSheetColumns(gsapi);
-        const newRows = [];
+        await ensureSheets(gsapi);
+
+        let totalProfit = 0;
+        const itemRows = [];
         for (const it of items) {
           const { total, profit } = calculateItemProfit(it, costMap);
-          newRows.push(
-            createBillRow(
-              originalBillNo,
-              it,
-              profit,
-              total,
-              courierCharges,
-              gpayCharges,
-              finalTotal,
-              newCustomerId,
-              originalDate,
-              originalTime,
-              timestamp,
-              paymentMode
-            )
-          );
+          totalProfit += profit;
+          itemRows.push(createBillItemRow(originalBillNo, it, profit, total));
         }
+
+        const summaryRow = createBillSummaryRow(
+          originalBillNo,
+          customerId,
+          originalDate,
+          originalTime,
+          paymentMode,
+          courierCharges,
+          gpayCharges,
+          finalTotal,
+          totalProfit,
+          timestamp
+        );
+
         await gsapi.spreadsheets.values.append({
           spreadsheetId: STORE_SHEET_ID,
-          range: "Bill!A:O",
+          range: `${BILL_ITEMS_SHEET}!A:G`,
           valueInputOption: "USER_ENTERED",
-          requestBody: { values: newRows },
+          requestBody: { values: itemRows },
         });
+        await gsapi.spreadsheets.values.append({
+          spreadsheetId: STORE_SHEET_ID,
+          range: `${BILLS_SHEET}!A:J`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [summaryRow] },
+        });
+
         return res.status(200).json({ success: true, billNo: originalBillNo, fallbackUsage });
       }
 
@@ -820,7 +1162,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         paymentMode = "cash",
         gpayCharges = null,
         customer,
-        earnRate = 0,
       } = req.body;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
@@ -855,7 +1196,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         stockInfos.push({ ...it, storeInfo, loftInfo });
       }
 
-      // deduct stock with rollback
+      // deduct stock
       const fallbackUsage = [];
       const deductedStore = [];
       const deductedLoft = [];
@@ -893,7 +1234,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       } catch (err) {
-        // rollback store
+        // rollback
         for (const { info, usedStore } of deductedStore) {
           const newStock = info.storeInfo.stock + usedStore;
           await gsapi.spreadsheets.values.update({
@@ -903,7 +1244,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             requestBody: { values: [[newStock]] },
           });
         }
-        // rollback loft
         for (const { info, loftDetails } of deductedLoft) {
           const loftEntry = info.loftInfo;
           const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
@@ -919,12 +1259,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: "stock deduction failed, rolled back" });
       }
 
-      // upsert customer
+      // upsert customer (ignores earnRate)
       let customerId;
       try {
-        customerId = await upsertCustomer(gsapi, customer, date, finalTotal, earnRate);
+        customerId = await upsertCustomer(gsapi, customer, date, finalTotal, 0);
       } catch (err: any) {
-        // rollback stock again
+        // rollback stock
         for (const { info, usedStore } of deductedStore) {
           const newStock = info.storeInfo.stock + usedStore;
           await gsapi.spreadsheets.values.update({
@@ -949,35 +1289,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: `customer creation failed: ${err.message}` });
       }
 
-      // write bill rows
+      // write bill
       const costMap = await getCostMap(gsapi);
-      await ensureBillSheetColumns(gsapi);
-      const billRows = [];
+      await ensureSheets(gsapi);
+
+      let totalProfit = 0;
+      const itemRows = [];
       for (const it of items) {
         const { total, profit } = calculateItemProfit(it, costMap);
-        billRows.push(
-          createBillRow(
-            billNo,
-            it,
-            profit,
-            total,
-            courierCharges,
-            gpayCharges,
-            finalTotal,
-            customerId,
-            date,
-            time,
-            timestamp,
-            paymentMode
-          )
-        );
+        totalProfit += profit;
+        itemRows.push(createBillItemRow(billNo, it, profit, total));
       }
+
+      const summaryRow = createBillSummaryRow(
+        billNo,
+        customerId,
+        date,
+        time,
+        paymentMode,
+        courierCharges,
+        gpayCharges,
+        finalTotal,
+        totalProfit,
+        timestamp
+      );
+
       await gsapi.spreadsheets.values.append({
         spreadsheetId: STORE_SHEET_ID,
-        range: "Bill!A:O",
+        range: `${BILL_ITEMS_SHEET}!A:G`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: billRows },
+        requestBody: { values: itemRows },
       });
+      await gsapi.spreadsheets.values.append({
+        spreadsheetId: STORE_SHEET_ID,
+        range: `${BILLS_SHEET}!A:J`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [summaryRow] },
+      });
+
       return res.status(200).json({ billNo, customerId, fallbackUsage });
     }
 

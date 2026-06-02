@@ -2,7 +2,7 @@
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// ========== constants ==========
+// constants
 const BILLS_SHEET = "Bills";
 const BILL_ITEMS_SHEET = "BillItems";
 const POINTS_CONFIG_SHEET = "PointsConfig";
@@ -57,7 +57,7 @@ const auth = new google.auth.GoogleAuth({
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
 
-// ========== helpers ==========
+// helpers
 function getISTDateTime() {
   const now = new Date();
   const date = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -79,7 +79,7 @@ function normalisePhone(phone?: string | null): string | null {
   return "+91" + digits.slice(-10);
 }
 
-// ========== bill number ==========
+// bill number
 async function getNextBillNo(gsapi: any): Promise<number> {
   const existingRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -93,7 +93,7 @@ async function getNextBillNo(gsapi: any): Promise<number> {
   return maxBillNo + 1;
 }
 
-// ========== customer ==========
+// customer
 function generateCustomerId(existingIds: string[]): string {
   const ids = existingIds
     .filter((id) => id?.startsWith("LMS-"))
@@ -122,7 +122,7 @@ async function findCustomerByPhone(gsapi: any, phone: string): Promise<any | nul
   return null;
 }
 
-// ========== points configuration ==========
+// points config
 async function ensurePointsConfigSheet(gsapi: any) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -301,7 +301,7 @@ async function upsertCustomer(
   return customerId;
 }
 
-// ========== optimised batch read helpers ==========
+// optimised batch read helpers
 async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
   const res = await gsapi.spreadsheets.values.get({
     spreadsheetId: LOFT_SHEET_ID,
@@ -313,21 +313,48 @@ async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
     const keyword = String(r[0] || "").toLowerCase();
     if (keyword) map.set(keyword, Number(r[1]) || 5);
   }
-  return map;
-}
+  return map; }
 
-async function batchGetStoreStock(
-  gsapi: any,
-  items: Array<{ item: string; shade: string }>
-): Promise<Map<string, { stock: number; rowIndex: number }>> {
+async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>): Promise<Map<string, { stock: number; rowIndex: number }>> {
   if (items.length === 0) return new Map();
   const ranges = items.map((it) => `${escapeSheetName(it.item)}!B2:C`);
-  const res = await gsapi.spreadsheets.values.batchGet({
-    spreadsheetId: STORE_SHEET_ID,
-    ranges,
-  });
+  let valueRanges;
+  try {
+    const res = await gsapi.spreadsheets.values.batchGet({
+      spreadsheetId: STORE_SHEET_ID,
+      ranges,
+    });
+    valueRanges = res.data.valueRanges || [];
+  } catch (err) {
+    console.warn("[batchGetStoreStock] batch failed, falling back to sequential reads", err);
+    const result = new Map();
+    for (const it of items) {
+      try {
+        const singleRes = await gsapi.spreadsheets.values.get({
+          spreadsheetId: STORE_SHEET_ID,
+          range: `${escapeSheetName(it.item)}!B2:C`,
+        });
+        const rows = singleRes.data.values || [];
+        const targetShade = it.shade.toLowerCase();
+        let stock = 0;
+        let rowIndex = -1;
+        for (let r = 0; r < rows.length; r++) {
+          if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
+            stock = Number(rows[r][1]) || 0;
+            rowIndex = r;
+            break;
+          }
+        }
+        result.set(`${it.item}|${targetShade}`, { stock, rowIndex });
+      } catch (e) {
+        // sheet doesn't exist -> no stock
+        result.set(`${it.item}|${it.shade.toLowerCase()}`, { stock: 0, rowIndex: -1 });
+      }
+    }
+    return result;
+  }
+
   const result = new Map();
-  const valueRanges = res.data.valueRanges || [];
   for (let i = 0; i < valueRanges.length; i++) {
     const rows = valueRanges[i].values || [];
     const item = items[i].item;
@@ -341,8 +368,7 @@ async function batchGetStoreStock(
         break;
       }
     }
-    const key = `${item}|${targetShade}`;
-    result.set(key, { stock, rowIndex });
+    result.set(`${item}|${targetShade}`, { stock, rowIndex });
   }
   return result;
 }
@@ -365,12 +391,80 @@ async function batchGetLoftStock(
   >
 > {
   if (items.length === 0) return new Map();
+  
   const itemRanges = items.map((it) => `${escapeSheetName(it.item)}!A2:L`);
-  const res = await gsapi.spreadsheets.values.batchGet({
-    spreadsheetId: LOFT_SHEET_ID,
-    ranges: itemRanges,
-  });
-  const valueRanges = res.data.valueRanges || [];
+  let valueRanges;
+  try {
+    const res = await gsapi.spreadsheets.values.batchGet({
+      spreadsheetId: LOFT_SHEET_ID,
+      ranges: itemRanges,
+    });
+    valueRanges = res.data.valueRanges || [];
+  } catch (err) {
+    // batchGet failed (likely a missing sheet) → fall back to individual reads
+    console.warn("[batchGetLoftStock] batch failed, falling back to sequential reads", err);
+    const result = new Map();
+    for (const it of items) {
+      // try item sheet
+      try {
+        const singleRes = await gsapi.spreadsheets.values.get({
+          spreadsheetId: LOFT_SHEET_ID,
+          range: `${escapeSheetName(it.item)}!A2:L`,
+        });
+        const rows = singleRes.data.values || [];
+        const targetShade = it.shade.toLowerCase();
+        let found = false;
+        for (let r = 0; r < rows.length; r++) {
+          if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
+            const individuals = Number(rows[r][4]) || 0;
+            const packets = Number(rows[r][5]) || 0;
+            const packetSize = packetSizeMap.get(it.item.toLowerCase()) || 5;
+            result.set(`${it.item}|${targetShade}`, {
+              individuals,
+              packets,
+              packetSize,
+              sheetName: it.item,
+              rowIndex: r,
+              isMisc: false,
+            });
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          // fallback to miscellaneous sheet
+          const miscRes = await gsapi.spreadsheets.values.get({
+            spreadsheetId: LOFT_SHEET_ID,
+            range: "miscellaneous!A2:L",
+          });
+          const miscRows = miscRes.data.values || [];
+          for (let r = 0; r < miscRows.length; r++) {
+            if (
+              miscRows[r][0]?.toString().trim().toLowerCase() === it.item.toLowerCase() &&
+              miscRows[r][1]?.toString().trim().toLowerCase() === targetShade
+            ) {
+              const individuals = Number(miscRows[r][4]) || 0;
+              const packets = Number(miscRows[r][5]) || 0;
+              const packetSize = packetSizeMap.get(it.item.toLowerCase()) || 5;
+              result.set(`${it.item}|${targetShade}`, {
+                individuals,
+                packets,
+                packetSize,
+                sheetName: "miscellaneous",
+                rowIndex: r,
+                isMisc: true,
+              });
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        // sheet doesn't exist, ignore
+      }
+    }
+    return result;
+  }
+
   const result = new Map();
   const needMisc: Set<number> = new Set();
 
@@ -400,39 +494,43 @@ async function batchGetLoftStock(
   }
 
   if (needMisc.size > 0) {
-    const miscRes = await gsapi.spreadsheets.values.get({
-      spreadsheetId: LOFT_SHEET_ID,
-      range: "miscellaneous!A2:L",
-    });
-    const miscRows = miscRes.data.values || [];
-    for (const idx of needMisc) {
-      const item = items[idx].item;
-      const shade = items[idx].shade.toLowerCase();
-      for (let r = 0; r < miscRows.length; r++) {
-        if (
-          miscRows[r][0]?.toString().trim().toLowerCase() === item.toLowerCase() &&
-          miscRows[r][1]?.toString().trim().toLowerCase() === shade
-        ) {
-          const individuals = Number(miscRows[r][4]) || 0;
-          const packets = Number(miscRows[r][5]) || 0;
-          const packetSize = packetSizeMap.get(item.toLowerCase()) || 5;
-          result.set(`${item}|${shade}`, {
-            individuals,
-            packets,
-            packetSize,
-            sheetName: "miscellaneous",
-            rowIndex: r,
-            isMisc: true,
-          });
-          break;
+    try {
+      const miscRes = await gsapi.spreadsheets.values.get({
+        spreadsheetId: LOFT_SHEET_ID,
+        range: "miscellaneous!A2:L",
+      });
+      const miscRows = miscRes.data.values || [];
+      for (const idx of needMisc) {
+        const item = items[idx].item;
+        const shade = items[idx].shade.toLowerCase();
+        for (let r = 0; r < miscRows.length; r++) {
+          if (
+            miscRows[r][0]?.toString().trim().toLowerCase() === item.toLowerCase() &&
+            miscRows[r][1]?.toString().trim().toLowerCase() === shade
+          ) {
+            const individuals = Number(miscRows[r][4]) || 0;
+            const packets = Number(miscRows[r][5]) || 0;
+            const packetSize = packetSizeMap.get(item.toLowerCase()) || 5;
+            result.set(`${item}|${shade}`, {
+              individuals,
+              packets,
+              packetSize,
+              sheetName: "miscellaneous",
+              rowIndex: r,
+              isMisc: true,
+            });
+            break;
+          }
         }
       }
+    } catch (err) {
+      console.warn("[batchGetLoftStock] failed to read miscellaneous sheet", err);
     }
   }
   return result;
 }
 
-// ========== stock deduction (unchanged logic, uses preloaded data) ==========
+// stock deduction
 async function deductStoreStock(
   gsapi: any,
   item: string,
@@ -564,7 +662,7 @@ async function getLoftFallbackLogForBill(gsapi: any, billNo: number): Promise<an
   }
 }
 
-// ========== profit and cost ==========
+// profit and cost
 async function getCostMap(gsapi: any): Promise<Map<string, number>> {
   const profitRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -628,7 +726,7 @@ function createBillSummaryRow(
   ];
 }
 
-// ========== get bill by number (uses batchGet) ==========
+// get bill by number
 async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: any; items: any[] } | null> {
   const batchRes = await gsapi.spreadsheets.values.batchGet({
     spreadsheetId: STORE_SHEET_ID,
@@ -668,7 +766,7 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
   };
 }
 
-// ========== delete bill rows (uses batchGet) ==========
+// delete bill rows
 async function deleteBillRows(gsapi: any, billNo: number) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -731,7 +829,7 @@ async function deleteBillRows(gsapi: any, billNo: number) {
   }
 }
 
-// ========== main handler ==========
+// main handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const client = await auth.getClient();

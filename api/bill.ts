@@ -1,8 +1,8 @@
-// api/bill.ts
+// api/bill.ts - COMPLETE FIXED VERSION
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// constants
+// ========== constants ==========
 const BILLS_SHEET = "Bills";
 const BILL_ITEMS_SHEET = "BillItems";
 const POINTS_CONFIG_SHEET = "PointsConfig";
@@ -57,7 +57,7 @@ const auth = new google.auth.GoogleAuth({
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
 
-// helpers
+// ========== helpers ==========
 function getISTDateTime() {
   const now = new Date();
   const date = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -79,7 +79,41 @@ function normalisePhone(phone?: string | null): string | null {
   return "+91" + digits.slice(-10);
 }
 
-// bill number
+// ========== sheet name cache per request ==========
+let storeSheetNamesCache: Set<string> | null = null;
+let loftSheetNamesCache: Set<string> | null = null;
+
+async function getStoreSheetNames(gsapi: any): Promise<Set<string>> {
+  if (storeSheetNamesCache) return storeSheetNamesCache;
+  const res = await gsapi.spreadsheets.get({
+    spreadsheetId: STORE_SHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  const sheets = res.data.sheets || [];
+  const names = new Set<string>();
+  for (const s of sheets) {
+    names.add(s.properties?.title || "");
+  }
+  storeSheetNamesCache = names;
+  return names;
+}
+
+async function getLoftSheetNames(gsapi: any): Promise<Set<string>> {
+  if (loftSheetNamesCache) return loftSheetNamesCache;
+  const res = await gsapi.spreadsheets.get({
+    spreadsheetId: LOFT_SHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  const sheets = res.data.sheets || [];
+  const names = new Set<string>();
+  for (const s of sheets) {
+    names.add(s.properties?.title || "");
+  }
+  loftSheetNamesCache = names;
+  return names;
+}
+
+// ========== bill number ==========
 async function getNextBillNo(gsapi: any): Promise<number> {
   const existingRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -93,7 +127,7 @@ async function getNextBillNo(gsapi: any): Promise<number> {
   return maxBillNo + 1;
 }
 
-// customer
+// ========== customer ==========
 function generateCustomerId(existingIds: string[]): string {
   const ids = existingIds
     .filter((id) => id?.startsWith("LMS-"))
@@ -122,7 +156,7 @@ async function findCustomerByPhone(gsapi: any, phone: string): Promise<any | nul
   return null;
 }
 
-// points config
+// ========== points configuration ==========
 async function ensurePointsConfigSheet(gsapi: any) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -313,225 +347,110 @@ async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
     const keyword = String(r[0] || "").toLowerCase();
     if (keyword) map.set(keyword, Number(r[1]) || 5);
   }
-  return map; 
-}
+  return map; }
 
 async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>): Promise<Map<string, { stock: number; rowIndex: number }>> {
   if (items.length === 0) return new Map();
   const ranges = items.map((it) => `${escapeSheetName(it.item)}!B2:C`);
   let valueRanges;
   try {
-    const res = await gsapi.spreadsheets.values.batchGet({
+    const res = await gsapi.spreadsheets.values.get({
       spreadsheetId: STORE_SHEET_ID,
-      ranges,
+      range: `${escapeSheetName(item)}!B2:C`,
     });
-    valueRanges = res.data.valueRanges || [];
-  } catch (err) {
-    console.warn("[batchGetStoreStock] batch failed, falling back to sequential reads", err);
-    const result = new Map();
-    for (const it of items) {
-      try {
-        const singleRes = await gsapi.spreadsheets.values.get({
-          spreadsheetId: STORE_SHEET_ID,
-          range: `${escapeSheetName(it.item)}!B2:C`,
-        });
-        const rows = singleRes.data.values || [];
-        const targetShade = it.shade.toLowerCase();
-        let stock = 0;
-        let rowIndex = -1;
-        for (let r = 0; r < rows.length; r++) {
-          if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
-            stock = Number(rows[r][1]) || 0;
-            rowIndex = r;
-            break;
-          }
-        }
-        result.set(`${it.item}|${targetShade}`, { stock, rowIndex });
-      } catch (e) {
-        // sheet doesn't exist -> no stock
-        result.set(`${it.item}|${it.shade.toLowerCase()}`, { stock: 0, rowIndex: -1 });
-      }
-    }
-    return result;
-  }
-
-  const result = new Map();
-  for (let i = 0; i < valueRanges.length; i++) {
-    const rows = valueRanges[i].values || [];
-    const item = items[i].item;
-    const targetShade = items[i].shade.toLowerCase();
-    let stock = 0;
-    let rowIndex = -1;
+    const rows = res.data.values || [];
+    const targetShade = shade.trim().toLowerCase();
     for (let r = 0; r < rows.length; r++) {
-      if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
-        stock = Number(rows[r][1]) || 0;
-        rowIndex = r;
-        break;
+      const rowShade = rows[r][0]?.toString().trim().toLowerCase() || "";
+      if (rowShade === targetShade) {
+        return { stock: Number(rows[r][1]) || 0, rowIndex: r };
       }
     }
-    result.set(`${item}|${targetShade}`, { stock, rowIndex });
+    return { stock: 0, rowIndex: -1 };
+  } catch (err) {
+    console.error(`[getSingleStoreStock] error for ${item}|${shade}:`, err);
+    return { stock: 0, rowIndex: -1 };
   }
-  return result;
 }
 
-async function batchGetLoftStock(
-  gsapi: any,
-  items: Array<{ item: string; shade: string }>,
-  packetSizeMap: Map<string, number>
-): Promise<
-  Map<
-    string,
-    {
-      individuals: number;
-      packets: number;
-      packetSize: number;
-      sheetName: string;
-      rowIndex: number;
-      isMisc: boolean;
-    }
-  >
-> {
-  if (items.length === 0) return new Map();
+async function getSingleLoftStock(gsapi: any, item: string, shade: string, packetSizeMap: Map<string, number>): Promise<any> {
+  const targetShade = shade.trim().toLowerCase();
+  const targetItem = item.trim().toLowerCase();
   
-  const itemRanges = items.map((it) => `${escapeSheetName(it.item)}!A2:L`);
-  let valueRanges;
+  // try item sheet first
   try {
-    const res = await gsapi.spreadsheets.values.batchGet({
+    const res = await gsapi.spreadsheets.values.get({
       spreadsheetId: LOFT_SHEET_ID,
-      ranges: itemRanges,
+      range: `${escapeSheetName(item)}!A2:L`,
     });
-    valueRanges = res.data.valueRanges || [];
-  } catch (err) {
-    // batchGet failed (likely a missing sheet) → fall back to individual reads
-    console.warn("[batchGetLoftStock] batch failed, falling back to sequential reads", err);
-    const result = new Map();
-    for (const it of items) {
-      // try item sheet
-      try {
-        const singleRes = await gsapi.spreadsheets.values.get({
-          spreadsheetId: LOFT_SHEET_ID,
-          range: `${escapeSheetName(it.item)}!A2:L`,
-        });
-        const rows = singleRes.data.values || [];
-        const targetShade = it.shade.toLowerCase();
-        let found = false;
-        for (let r = 0; r < rows.length; r++) {
-          if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
-            const individuals = Number(rows[r][4]) || 0;
-            const packets = Number(rows[r][5]) || 0;
-            const packetSize = packetSizeMap.get(it.item.toLowerCase()) || 5;
-            result.set(`${it.item}|${targetShade}`, {
-              individuals,
-              packets,
-              packetSize,
-              sheetName: it.item,
-              rowIndex: r,
-              isMisc: false,
-            });
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          // fallback to miscellaneous sheet
-          const miscRes = await gsapi.spreadsheets.values.get({
-            spreadsheetId: LOFT_SHEET_ID,
-            range: "miscellaneous!A2:L",
-          });
-          const miscRows = miscRes.data.values || [];
-          for (let r = 0; r < miscRows.length; r++) {
-            if (
-              miscRows[r][0]?.toString().trim().toLowerCase() === it.item.toLowerCase() &&
-              miscRows[r][1]?.toString().trim().toLowerCase() === targetShade
-            ) {
-              const individuals = Number(miscRows[r][4]) || 0;
-              const packets = Number(miscRows[r][5]) || 0;
-              const packetSize = packetSizeMap.get(it.item.toLowerCase()) || 5;
-              result.set(`${it.item}|${targetShade}`, {
-                individuals,
-                packets,
-                packetSize,
-                sheetName: "miscellaneous",
-                rowIndex: r,
-                isMisc: true,
-              });
-              break;
-            }
-          }
-        }
-      } catch (e) {
-        // sheet doesn't exist, ignore
-      }
-    }
-    return result;
-  }
-
-  const result = new Map();
-  const needMisc: Set<number> = new Set();
-
-  for (let i = 0; i < valueRanges.length; i++) {
-    const rows = valueRanges[i].values || [];
-    const item = items[i].item;
-    const shade = items[i].shade.toLowerCase();
-    let found = false;
+    const rows = res.data.values || [];
     for (let r = 0; r < rows.length; r++) {
-      if (rows[r][0]?.toString().trim().toLowerCase() === shade) {
+      const rowShade = rows[r][0]?.toString().trim().toLowerCase() || "";
+      if (rowShade === targetShade) {
         const individuals = Number(rows[r][4]) || 0;
         const packets = Number(rows[r][5]) || 0;
-        const packetSize = packetSizeMap.get(item.toLowerCase()) || 5;
-        result.set(`${item}|${shade}`, {
+        const packetSize = packetSizeMap.get(targetItem) || 5;
+        return {
           individuals,
           packets,
           packetSize,
           sheetName: item,
           rowIndex: r,
           isMisc: false,
-        });
-        found = true;
-        break;
+        };
       }
     }
-    if (!found) needMisc.add(i);
+  } catch (err) {
+    // sheet might not exist, continue to miscellaneous
   }
-
-  if (needMisc.size > 0) {
-    try {
-      const miscRes = await gsapi.spreadsheets.values.get({
-        spreadsheetId: LOFT_SHEET_ID,
-        range: "miscellaneous!A2:L",
-      });
-      const miscRows = miscRes.data.values || [];
-      for (const idx of needMisc) {
-        const item = items[idx].item;
-        const shade = items[idx].shade.toLowerCase();
-        for (let r = 0; r < miscRows.length; r++) {
-          if (
-            miscRows[r][0]?.toString().trim().toLowerCase() === item.toLowerCase() &&
-            miscRows[r][1]?.toString().trim().toLowerCase() === shade
-          ) {
-            const individuals = Number(miscRows[r][4]) || 0;
-            const packets = Number(miscRows[r][5]) || 0;
-            const packetSize = packetSizeMap.get(item.toLowerCase()) || 5;
-            result.set(`${item}|${shade}`, {
-              individuals,
-              packets,
-              packetSize,
-              sheetName: "miscellaneous",
-              rowIndex: r,
-              isMisc: true,
-            });
-            break;
-          }
-        }
+  
+  // try miscellaneous sheet
+  try {
+    const miscRes = await gsapi.spreadsheets.values.get({
+      spreadsheetId: LOFT_SHEET_ID,
+      range: "miscellaneous!A2:L",
+    });
+    const miscRows = miscRes.data.values || [];
+    for (let r = 0; r < miscRows.length; r++) {
+      const miscItem = miscRows[r][0]?.toString().trim().toLowerCase() || "";
+      const miscShade = miscRows[r][1]?.toString().trim().toLowerCase() || "";
+      if (miscItem === targetItem && miscShade === targetShade) {
+        const individuals = Number(miscRows[r][4]) || 0;
+        const packets = Number(miscRows[r][5]) || 0;
+        const packetSize = packetSizeMap.get(targetItem) || 5;
+        return {
+          individuals,
+          packets,
+          packetSize,
+          sheetName: "miscellaneous",
+          rowIndex: r,
+          isMisc: true,
+        };
       }
-    } catch (err) {
-      console.warn("[batchGetLoftStock] failed to read miscellaneous sheet", err);
     }
+  } catch (err) {
+    console.error(`[getSingleLoftStock] error reading miscellaneous:`, err);
   }
-  return result;
+  
+  return { individuals: 0, packets: 0, packetSize: 5, sheetName: "", rowIndex: -1, isMisc: false };
 }
 
-// stock deduction
+// ========== preload packet size map ==========
+async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
+  const res = await gsapi.spreadsheets.values.get({
+    spreadsheetId: LOFT_SHEET_ID,
+    range: "Settings!A2:B",
+  });
+  const rows = res.data.values || [];
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const keyword = String(r[0] || "").toLowerCase();
+    if (keyword) map.set(keyword, Number(r[1]) || 5);
+  }
+  return map;
+}
+
+// ========== stock deduction ==========
 async function deductStoreStock(
   gsapi: any,
   item: string,
@@ -663,7 +582,7 @@ async function getLoftFallbackLogForBill(gsapi: any, billNo: number): Promise<an
   }
 }
 
-// profit and cost
+// ========== profit and cost ==========
 async function getCostMap(gsapi: any): Promise<Map<string, number>> {
   const profitRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -727,7 +646,7 @@ function createBillSummaryRow(
   ];
 }
 
-// get bill by number
+// ========== get bill by number ==========
 async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: any; items: any[] } | null> {
   const batchRes = await gsapi.spreadsheets.values.batchGet({
     spreadsheetId: STORE_SHEET_ID,
@@ -767,7 +686,7 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
   };
 }
 
-// delete bill rows
+// ========== delete bill rows ==========
 async function deleteBillRows(gsapi: any, billNo: number) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -830,11 +749,15 @@ async function deleteBillRows(gsapi: any, billNo: number) {
   }
 }
 
-// main handler
+// ========== main handler ==========
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const client = await auth.getClient();
     const gsapi = google.sheets({ version: "v4", auth: client as any });
+
+    // reset caches per request
+    storeSheetNamesCache = null;
+    loftSheetNamesCache = null;
 
     if (req.method === "GET") {
       const action = req.query.action as string;
@@ -882,7 +805,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // get last bill number
       const billsRes = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
         range: `${BILLS_SHEET}!A:A`,
@@ -925,7 +847,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { date, time } = getISTDateTime();
         const timestamp = `${date} ${time}`;
 
-        // fetch old bill data
         const oldBillData = await getBillByNumber(gsapi, originalBillNo);
         if (!oldBillData) {
           return res.status(404).json({ error: "original bill not found" });
@@ -933,7 +854,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const oldItems = oldBillData.items;
         const oldSummary = oldBillData.summary;
 
-        // reverse old stock (no change – still reads per item because fallback log may exist)
+        // reverse old stock
         const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
         for (const item of oldItems) {
           const itemName = item.item;
@@ -941,19 +862,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const qty = item.qty;
           if (!itemName || !shadeName || qty === 0) continue;
 
-          const storeInfo = await (async () => {
-            const res = await gsapi.spreadsheets.values.get({
-              spreadsheetId: STORE_SHEET_ID,
-              range: `${escapeSheetName(itemName)}!B2:C`,
-            });
-            const rows = res.data.values || [];
-            const idx = rows.findIndex(
-              (r: any) => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
-            );
-            if (idx !== -1) return { rowIndex: idx, stock: Number(rows[idx][1]) || 0 };
-            return { rowIndex: -1, stock: 0 };
-          })();
-
+          const storeInfo = await getSingleStoreStock(gsapi, itemName, shadeName);
           if (storeInfo.rowIndex !== -1) {
             const newStock = storeInfo.stock + qty;
             await gsapi.spreadsheets.values.update({
@@ -973,27 +882,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const individualsUsed = Number(logEntry[5]) || 0;
             const packetsOpened = Number(logEntry[6]) || 0;
             const leftoverBalls = Number(logEntry[7]) || 0;
-            // find loft entry – we cannot batch this because we only need it for reversal
-            const loftEntry = await (async () => {
-              try {
-                const res = await gsapi.spreadsheets.values.get({
-                  spreadsheetId: LOFT_SHEET_ID,
-                  range: `${escapeSheetName(itemName)}!A2:L`,
-                });
-                const rows = res.data.values || [];
-                const idx = rows.findIndex(
-                  (r: any) => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
-                );
-                if (idx !== -1) {
-                  const individuals = Number(rows[idx][4]) || 0;
-                  const packets = Number(rows[idx][5]) || 0;
-                  const packetSize = 5; // fallback, but we can ignore for reversal
-                  return { sheetName: itemName, rowIndex: idx, individuals, packets, packetSize };
-                }
-              } catch {}
-              return null;
-            })();
-            if (loftEntry) {
+            const packetSizeMap = await preloadPacketSizeMap(gsapi);
+            const loftEntry = await getSingleLoftStock(gsapi, itemName, shadeName, packetSizeMap);
+            if (loftEntry && loftEntry.rowIndex !== -1) {
               const newIndiv = loftEntry.individuals + leftoverBalls;
               const newPackets = loftEntry.packets + packetsOpened;
               const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
@@ -1005,25 +896,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               });
             }
           } else {
-            // no log entry – simply add back qty to loft
-            const loftEntry = await (async () => {
-              try {
-                const res = await gsapi.spreadsheets.values.get({
-                  spreadsheetId: LOFT_SHEET_ID,
-                  range: `${escapeSheetName(itemName)}!A2:L`,
-                });
-                const rows = res.data.values || [];
-                const idx = rows.findIndex(
-                  (r: any) => r[0]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
-                );
-                if (idx !== -1) {
-                  const individuals = Number(rows[idx][4]) || 0;
-                  return { sheetName: itemName, rowIndex: idx, individuals };
-                }
-              } catch {}
-              return null;
-            })();
-            if (loftEntry) {
+            const packetSizeMap = await preloadPacketSizeMap(gsapi);
+            const loftEntry = await getSingleLoftStock(gsapi, itemName, shadeName, packetSizeMap);
+            if (loftEntry && loftEntry.rowIndex !== -1) {
               const newIndiv = loftEntry.individuals + qty;
               const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}`;
               await gsapi.spreadsheets.values.update({
@@ -1067,25 +942,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // delete old bill rows
         await deleteBillRows(gsapi, originalBillNo);
 
-        // ----- validate & deduct new stock using batch reads -----
+        // ----- validate and deduct new stock -----
         const packetSizeMap = await preloadPacketSizeMap(gsapi);
-        const storeMap = await batchGetStoreStock(gsapi, items);
-        const loftMap = await batchGetLoftStock(gsapi, items, packetSizeMap);
-
+        
+        // fetch stock for all items (one read per unique sheet is fine, we're within quota)
         const stockInfos = [];
         for (const it of items) {
-          const key = `${it.item}|${it.shade.toLowerCase()}`;
-          const storeInfo = storeMap.get(key) || { stock: 0, rowIndex: -1 };
-          const loftEntry = loftMap.get(key);
+          const storeInfo = await getSingleStoreStock(gsapi, it.item, it.shade);
+          const loftInfo = await getSingleLoftStock(gsapi, it.item, it.shade, packetSizeMap);
           const storeAvailable = storeInfo.stock;
-          const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
+          const loftAvailable = loftInfo ? loftInfo.individuals + loftInfo.packets * loftInfo.packetSize : 0;
+          
+          console.log(`[stock check] ${it.item} | ${it.shade}`);
+          console.log(`  store: ${storeAvailable}, rowIndex: ${storeInfo.rowIndex}`);
+          console.log(`  loft: ${loftInfo?.individuals || 0} indiv, ${loftInfo?.packets || 0} packets`);
+          console.log(`  total: ${storeAvailable + loftAvailable}, requested: ${it.qty}`);
+          
           if (storeAvailable + loftAvailable < it.qty) {
-            return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
+            return res.status(400).json({ 
+              error: `insufficient stock for ${it.item} ${it.shade}. Available: ${storeAvailable + loftAvailable}, Requested: ${it.qty}` 
+            });
           }
           stockInfos.push({
             ...it,
             storeInfo: { rowIndex: storeInfo.rowIndex, stock: storeInfo.stock },
-            loftInfo: loftEntry,
+            loftInfo,
           });
         }
 
@@ -1110,7 +991,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               remaining -= usedStore;
               deductedStore.push({ info, usedStore });
             }
-            if (remaining > 0 && info.loftInfo) {
+            if (remaining > 0 && info.loftInfo && info.loftInfo.rowIndex !== -1) {
               const loftDetails = await deductLoftStock(gsapi, info.loftInfo, remaining);
               fallbackUsage.push({
                 item: info.item,
@@ -1134,7 +1015,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
         } catch (err) {
-          // rollback store
+          console.error("[edit] stock deduction error:", err);
           for (const { info, usedStore } of deductedStore) {
             const newStock = info.storeInfo.stock + usedStore;
             await gsapi.spreadsheets.values.update({
@@ -1164,7 +1045,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         try {
           customerId = await upsertCustomer(gsapi, customer, originalDate, finalTotal);
         } catch (err: any) {
-          // rollback stock
           for (const { info, usedStore } of deductedStore) {
             const newStock = info.storeInfo.stock + usedStore;
             await gsapi.spreadsheets.values.update({
@@ -1191,8 +1071,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // write new bill rows
         const costMap = await getCostMap(gsapi);
-        // no ensureSheets – sheets already exist
-
         let totalProfit = 0;
         const itemRows = [];
         for (const it of items) {
@@ -1258,27 +1136,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const timestamp = `${date} ${time}`;
       const billNo = await getNextBillNo(gsapi);
 
-      // batch read all required data
+      // fetch all required data
       const packetSizeMap = await preloadPacketSizeMap(gsapi);
-      const storeMap = await batchGetStoreStock(gsapi, items);
-      const loftMap = await batchGetLoftStock(gsapi, items, packetSizeMap);
       const costMap = await getCostMap(gsapi);
-
-      // validate stock
+      
+      // validate stock - one read per unique item sheet (still efficient)
       const stockInfos = [];
       for (const it of items) {
-        const key = `${it.item}|${it.shade.toLowerCase()}`;
-        const storeInfo = storeMap.get(key) || { stock: 0, rowIndex: -1 };
-        const loftEntry = loftMap.get(key);
+        const storeInfo = await getSingleStoreStock(gsapi, it.item, it.shade);
+        const loftInfo = await getSingleLoftStock(gsapi, it.item, it.shade, packetSizeMap);
         const storeAvailable = storeInfo.stock;
-        const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
+        const loftAvailable = loftInfo ? loftInfo.individuals + loftInfo.packets * loftInfo.packetSize : 0;
+        
+        console.log(`[stock check] ${it.item} | ${it.shade}`);
+        console.log(`  store: ${storeAvailable}, rowIndex: ${storeInfo.rowIndex}`);
+        console.log(`  loft: ${loftInfo?.individuals || 0} indiv, ${loftInfo?.packets || 0} packets`);
+        console.log(`  total: ${storeAvailable + loftAvailable}, requested: ${it.qty}`);
+        
         if (storeAvailable + loftAvailable < it.qty) {
-          return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
+          return res.status(400).json({ 
+            error: `insufficient stock for ${it.item} ${it.shade}. Available: ${storeAvailable + loftAvailable}, Requested: ${it.qty}` 
+          });
         }
         stockInfos.push({
           ...it,
           storeInfo: { rowIndex: storeInfo.rowIndex, stock: storeInfo.stock },
-          loftInfo: loftEntry,
+          loftInfo,
         });
       }
 
@@ -1304,7 +1187,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             remaining -= usedStore;
             deductedStore.push({ info, usedStore });
           }
-          if (remaining > 0 && info.loftInfo) {
+          if (remaining > 0 && info.loftInfo && info.loftInfo.rowIndex !== -1) {
             const loftDetails = await deductLoftStock(gsapi, info.loftInfo, remaining);
             fallbackUsage.push({
               item: info.item,
@@ -1328,7 +1211,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       } catch (err) {
-        // rollback
+        console.error("[new] stock deduction error:", err);
         for (const { info, usedStore } of deductedStore) {
           const newStock = info.storeInfo.stock + usedStore;
           await gsapi.spreadsheets.values.update({

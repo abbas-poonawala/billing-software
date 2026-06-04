@@ -21,6 +21,7 @@ import {
 import { formatPrice, getISTNow } from "./utils/formatting";
 import { normalizePhone, isValidPhone, phoneForWhatsApp } from "./utils/phone";
 import type { BillItem, RetrievedBill } from "./types";
+import { searchCustomersById, searchCustomersByPhone } from "./services/api";
 
 // print/image helpers [self-contained]
 
@@ -316,7 +317,7 @@ export default function App() {
     }
   };
 
-  const loadBillForEdit = (bill: RetrievedBill) => {
+  const loadBillForEdit = async (bill: RetrievedBill) => {
     store.updateItems(bill.items.map(it => recalcItem({ ...it, cost: it.cost || 0, originalPrice: it.price, priceOverridden: false })));
     store.setCustomerName(bill.customerName);
     store.setPhone(bill.customerPhone);
@@ -327,7 +328,19 @@ export default function App() {
     store.setBillDate(bill.date);
     store.setBillTime(bill.time);
     store.setEditingBill(bill.billNo, bill.date, bill.time, bill.originalRowIndexes);
-    store.setCustomer(null);
+    if (bill.customerId) {
+      const existing = await searchCustomersById(bill.customerId);
+
+    if (existing) {
+      store.setCustomer(existing);
+    } else if (bill.customerPhone) {
+      const fallback = await searchCustomersByPhone(
+        bill.customerPhone
+      );
+
+      store.setCustomer(fallback);
+    }
+  }
     setShowBillRetrieval(false);
     showToast("Bill loaded. Edit and re-save.", "success");
   };

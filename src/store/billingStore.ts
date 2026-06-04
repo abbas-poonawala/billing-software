@@ -16,6 +16,7 @@ interface BillingState {
   // customer
   customer: Customer | null;
   customerName: string;
+  customerId: string; // FIX BUG-04: moved from local CustomerSection state to store
   phone: string;
   phone2: string;
   customerType: CustomerType;
@@ -48,7 +49,7 @@ interface BillingState {
 
   // actions
   setItems: (items: BillItem[]) => void;
-  updateItems: (items: BillItem[]) => void; // applies pricing rules
+  updateItems: (items: BillItem[]) => void;
   addItem: (item: BillItem) => void;
   removeItem: (idx: number) => void;
   updateItemQty: (idx: number, qty: number) => void;
@@ -65,6 +66,7 @@ interface BillingState {
 
   setCustomer: (c: Customer | null) => void;
   setCustomerName: (v: string) => void;
+  setCustomerId: (v: string) => void; // FIX BUG-04
   setPhone: (v: string) => void;
   setPhone2: (v: string) => void;
   setCustomerType: (v: CustomerType) => void;
@@ -87,10 +89,10 @@ interface BillingState {
 
   setPointsConfig: (c: PointsConfig | null) => void;
 
-  resetBill: () => void; // clear after save
+  resetBill: () => void;
+  resetCustomer: () => void; // FIX BUG-04: separate customer reset
 }
 
-// helper to get current IST date/time
 function getCurrentISTDateTime(): { date: string; time: string } {
   const opts = { timeZone: "Asia/Kolkata" } as const;
   return {
@@ -99,42 +101,44 @@ function getCurrentISTDateTime(): { date: string; time: string } {
   };
 }
 
-// initial state
 const { date: initialDate, time: initialTime } = getCurrentISTDateTime();
 
-const INITIAL: Omit<BillingState, keyof ReturnType<typeof actions>> = {
-  items: [],
+const INITIAL_CUSTOMER_STATE = {
+  customer: null as Customer | null,
+  customerName: "",
+  customerId: "", // FIX BUG-04
+  phone: "",
+  phone2: "",
+  customerType: "walk-in" as CustomerType,
+  redeemPoints: false,
+};
+
+const INITIAL_BILL_STATE = {
+  items: [] as BillItem[],
   entryItem: "",
   entryShade: "",
   entryQty: 1,
   entryPrice: "",
   entryCost: "",
-  customer: null,
-  customerName: "",
-  phone: "",
-  phone2: "",
-  customerType: "walk-in",
-  redeemPoints: false,
-  paymentMode: "Cash",
+  paymentMode: "Cash" as PaymentMode,
   courierCharges: "",
   amountReceived: "",
-  nextBillNo: null,
+  nextBillNo: null as number | null,
   billDate: initialDate,
   billTime: initialTime,
-  editingBillNo: null,
+  editingBillNo: null as number | null,
   originalBillDate: "",
   originalBillTime: "",
-  originalRowIndexes: [],
+  originalRowIndexes: [] as number[],
   saving: false,
   savingProgress: false,
-  selectedRow: null,
-  deleteConfirmIdx: null,
-  lastDeletedItem: null,
-  lastDeletedIdx: null,
-  pointsConfig: null,
+  selectedRow: null as number | null,
+  deleteConfirmIdx: null as number | null,
+  lastDeletedItem: null as BillItem | null,
+  lastDeletedIdx: null as number | null,
+  pointsConfig: null as PointsConfig | null,
 };
 
-// store creation
 function actions(set: any, get: any) {
   return {
     setItems: (items: BillItem[]) => set({ items }),
@@ -185,7 +189,6 @@ function actions(set: any, get: any) {
         const profit = total - it.cost * it.qty;
         return { ...it, price, total, profit, priceOverridden: true };
       });
-      // don't run pricing rules, this is a manual override
       set({ items });
     },
 
@@ -208,8 +211,22 @@ function actions(set: any, get: any) {
     clearEntryForm: () =>
       set({ entryItem: "", entryShade: "", entryQty: 1, entryPrice: "", entryCost: "" }),
 
-    setCustomer: (customer: Customer | null) => set({ customer }),
+    setCustomer: (customer: Customer | null) => {
+      if (customer) {
+        // FIX BUG-04: sync customerId to store when customer is set
+        set({
+          customer,
+          customerId: customer.customerId.replace(/^LMS-/, ""),
+          customerName: customer.name,
+          phone: customer.phone,
+          phone2: customer.phone2 || "",
+        });
+      } else {
+        set({ customer });
+      }
+    },
     setCustomerName: (customerName: string) => set({ customerName }),
+    setCustomerId: (customerId: string) => set({ customerId }), // FIX BUG-04
     setPhone: (phone: string) => set({ phone }),
     setPhone2: (phone2: string) => set({ phone2 }),
     setCustomerType: (customerType: CustomerType) => set({ customerType }),
@@ -234,6 +251,13 @@ function actions(set: any, get: any) {
 
     setPointsConfig: (pointsConfig: PointsConfig | null) => set({ pointsConfig }),
 
+    // FIX BUG-04: separate customer reset from bill reset
+    resetCustomer: () => {
+      set({
+        ...INITIAL_CUSTOMER_STATE,
+      });
+    },
+
     resetBill: () => {
       const { date: currentDate, time: currentTime } = getCurrentISTDateTime();
       set({
@@ -243,10 +267,8 @@ function actions(set: any, get: any) {
         entryQty: 1,
         entryPrice: "",
         entryCost: "",
-        customer: null,
-        customerName: "",
-        phone: "",
-        phone2: "",
+        // FIX BUG-01: preserve customer across bill saves — cashier may be serving same customer for multiple bills
+        // Customer is cleared via resetCustomer() or manually
         redeemPoints: false,
         courierCharges: "",
         amountReceived: "",
@@ -257,34 +279,40 @@ function actions(set: any, get: any) {
         originalRowIndexes: [],
         billDate: currentDate,
         billTime: currentTime,
+        lastDeletedItem: null,
+        lastDeletedIdx: null,
       });
     },
   };
 }
 
 export const useBillingStore = create<BillingState>((set, get) => ({
-  ...(INITIAL as any),
+  ...INITIAL_CUSTOMER_STATE,
+  ...INITIAL_BILL_STATE,
   ...actions(set, get),
 }));
 
-// derived selectors
-
-/** computed totals - use this in components, never recompute inline */
+// FIX BUG-14: atomic selector to prevent torn state reads
 export function useBillTotals() {
-  const { items, courierCharges, paymentMode, amountReceived } = useBillingStore();
-  return computeBillTotals(
-    items,
-    Number(courierCharges) || 0,
-    paymentMode,
-    Number(amountReceived) || 0
-  );
+  return useBillingStore((state) => {
+    const { items, courierCharges, paymentMode, amountReceived, customerType } = state;
+    const effectiveCourier = customerType === "courier" ? Number(courierCharges) || 0 : 0;
+    return computeBillTotals(
+      items,
+      effectiveCourier,
+      paymentMode,
+      Number(amountReceived) || 0
+    );
+  });
 }
 
 export function useDisplayBillMeta() {
-  const { nextBillNo, billDate, billTime, editingBillNo, originalBillDate, originalBillTime } = useBillingStore();
-  return {
-    displayBillNo: editingBillNo ?? nextBillNo,
-    displayBillDate: editingBillNo ? (originalBillDate || billDate) : billDate,
-    displayBillTime: editingBillNo ? (originalBillTime || billTime) : billTime,
-  };
+  return useBillingStore((state) => {
+    const { nextBillNo, billDate, billTime, editingBillNo, originalBillDate, originalBillTime } = state;
+    return {
+      displayBillNo: editingBillNo ?? nextBillNo,
+      displayBillDate: editingBillNo ? (originalBillDate || billDate) : billDate,
+      displayBillTime: editingBillNo ? (originalBillTime || billTime) : billTime,
+    };
+  });
 }

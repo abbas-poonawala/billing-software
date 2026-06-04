@@ -1,4 +1,4 @@
-import React, {useRef} from 'react';
+import React, { useRef, useCallback } from 'react';
 import { useBillingStore } from "../store/billingStore";
 import SearchDropdown from "./SearchDropdown";
 import { searchCustomersByName, searchCustomersByPhone, searchCustomersById } from "../services/api";
@@ -20,16 +20,19 @@ const si: React.CSSProperties = {
 
 export default function CustomerSection() {
   const {
-    customer, customerName, phone, phone2, customerType, paymentMode,
+    customer, customerName, customerId, phone, phone2, customerType, paymentMode,
     redeemPoints, courierCharges, pointsConfig,
-    setCustomer, setCustomerName, setPhone, setPhone2,
+    setCustomer, setCustomerName, setCustomerId, setPhone, setPhone2,
     setCustomerType, setPaymentMode, setRedeemPoints, setCourierCharges,
+    resetCustomer,
   } = useBillingStore();
 
   const [searchResults, setSearchResults] = React.useState<Customer[]>([]);
   const [searching, setSearching] = React.useState(false);
-  const [customerId, setCustomerId] = React.useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // FIX BUG-10: request cancellation for async race conditions
+  const nameSearchAbortRef = useRef<AbortController | null>(null);
+  const nameSearchSeqRef = useRef(0);
   const idSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const customerLabelMap = React.useMemo(() => {
@@ -38,111 +41,125 @@ export default function CustomerSection() {
     );
   }, [searchResults]);
 
-  // clear all customer fields
-  const clearCustomer = () => {
-    setCustomer(null);
-    setCustomerName("");
-    setPhone("");
-    setPhone2("");
-    setCustomerId("");
+  // FIX BUG-08 / BUG-09: clear customer state only explicitly, not on field edit
+  const clearCustomer = useCallback(() => {
+    resetCustomer();
     setSearchResults([]);
-    setRedeemPoints(false);
-  };
+  }, [resetCustomer]);
 
-  const selectCustomer = (cust: Customer) => {
-    setCustomer(cust);
-    setCustomerName(cust.name);
-    setPhone(cust.phone);
-    setPhone2(cust.phone2 || "");
-    setCustomerId(cust.customerId.replace(/^LMS-/, ""));
+  const selectCustomer = useCallback((cust: Customer) => {
+    setCustomer(cust); // FIX BUG-04: setCustomer now syncs customerId to store
     setSearchResults([]);
     showToast(`Customer: ${cust.name}`, "success");
-  };
+  }, [setCustomer]);
 
-  const handleNameChange = (val: string) => {
+  // FIX BUG-09: name change only triggers search — does NOT clear confirmed customer
+  const handleNameChange = useCallback((val: string) => {
     setCustomerName(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    
-    // if cleared, clear customer
-    if (!val.trim()) {
-      clearCustomer();
+
+    // Cancel any in-flight request
+    if (nameSearchAbortRef.current) {
+      nameSearchAbortRef.current.abort();
+    }
+
+    if (!val.trim() || val.trim().length < 2) {
+      setSearchResults([]);
       return;
     }
-    
-    if (val.trim().length < 2) { 
-      setSearchResults([]); 
-      return; 
-    }
-    
-    debounceRef.current = setTimeout(async () => {
+
+    // FIX BUG-10: monotonic sequence + AbortController
+    const seq = ++nameSearchSeqRef.current;
+    const controller = new AbortController();
+    nameSearchAbortRef.current = controller;
+
+    const timer = setTimeout(async () => {
+      if (controller.signal.aborted) return;
       setSearching(true);
       try {
         const results = await searchCustomersByName(val);
-        setSearchResults(results);
+        // Only update if this is still the latest request
+        if (seq === nameSearchSeqRef.current && !controller.signal.aborted) {
+          setSearchResults(results);
+        }
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          console.error("Name search failed:", err);
+        }
       } finally {
-        setSearching(false);
+        if (seq === nameSearchSeqRef.current) {
+          setSearching(false);
+        }
       }
     }, 300);
-  };
 
-  const handlePhoneChange = async (val: string) => {
+    // Store timer so we can cancel it on abort
+    controller.signal.addEventListener("abort", () => clearTimeout(timer));
+  }, [setCustomerName]);
+
+  const handlePhoneChange = useCallback(async (val: string) => {
     setPhone(val);
     const digits = val.replace(/[^0-9]/g, "");
-    
-    // if cleared, clear customer
+
+    // FIX BUG-08: empty phone only clears customer if phone was the identifier
     if (!digits) {
-      clearCustomer();
+      // Only clear if no customerId is set (i.e., customer was identified by phone)
+      if (!customer?.customerId) {
+        clearCustomer();
+      }
       return;
     }
-    
-    if (digits.length >= 10) {
-      const found = await searchCustomersByPhone(val);
-      if (found) selectCustomer(found);
-    }
-  };
 
-  const handlePhone2Change = async (val: string) => {
+    if (digits.length >= 10) {
+      try {
+        const found = await searchCustomersByPhone(val);
+        if (found) selectCustomer(found);
+      } catch (err) {
+        console.error("Phone lookup failed:", err);
+      }
+    }
+  }, [setPhone, customer, clearCustomer, selectCustomer]);
+
+  // FIX BUG-08: phone2 change NEVER clears customer
+  const handlePhone2Change = useCallback((val: string) => {
     setPhone2(val);
-    const digits = val.replace(/[^0-9]/g, "");
-    
-    // if cleared, clear customer
-    if (!digits) {
-      clearCustomer();
-      return;
-    }
-    
-    if (digits.length >= 10) {
-      const found = await searchCustomersByPhone(val);
-      if (found) selectCustomer(found);
-    }
-  };
+    // Do NOT call clearCustomer() here — phone2 is optional and clearing it
+    // should never erase a confirmed customer. (BUG-08 fix)
+  }, [setPhone2]);
 
-  const handleIdChange = (val: string) => {
-    // only allow numeric input
+  const handleIdChange = useCallback((val: string) => {
     const numericOnly = val.replace(/[^0-9]/g, "");
     setCustomerId(numericOnly);
-    
-    // clear if empty
+
     if (!numericOnly) {
-      clearCustomer();
+      // Only clear if nothing else identifies this customer
+      if (!customer?.customerId) {
+        clearCustomer();
+      }
       return;
     }
-    
-    // debounce ID search - only after numeric input exists
+
     if (idSearchRef.current) clearTimeout(idSearchRef.current);
     idSearchRef.current = setTimeout(async () => {
       if (numericOnly.length >= 2) {
-        const found = await searchCustomersById(`LMS-${numericOnly}`);
-        if (found) selectCustomer(found);
+        try {
+          const found = await searchCustomersById(`LMS-${numericOnly}`);
+          if (found) selectCustomer(found);
+        } catch (err) {
+          console.error("ID search failed:", err);
+        }
       }
     }, 400);
-  };
+  }, [setCustomerId, customer, clearCustomer, selectCustomer]);
 
   const switchType = (type: "walk-in" | "courier") => {
     setCustomerType(type);
     if (type === "walk-in") setCourierCharges("");
   };
 
+  // Show "new customer" hint only when:
+  // 1. No confirmed customer object
+  // 2. Name is long enough to be real
+  // 3. Not currently searching
   const isNew = !customer && customerName.trim().length >= 2 && !searching;
 
   return (
@@ -210,9 +227,14 @@ export default function CustomerSection() {
         />
 
         <input value={phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="Phone 1" style={si} />
-        <input value={phone2} onChange={e => handlePhone2Change(e.target.value)} placeholder="Phone 2 (optional)" style={si} />
-        
-        {/* Customer ID with prefix */}
+        <input
+          value={phone2}
+          onChange={e => handlePhone2Change(e.target.value)} // FIX BUG-08
+          placeholder="Phone 2 (optional)"
+          style={si}
+        />
+
+        {/* Customer ID with prefix — reads from store (FIX BUG-04) */}
         <div style={{ ...si, display: "flex", alignItems: "center", padding: 0, gap: 0, flex: 1 }}>
           <span style={{ padding: "12px 14px", background: "#f0f4f8", fontWeight: 700, color: "#0f172a", fontSize: 14, borderRight: "1px solid #cbd5e1" }}>LMS-</span>
           <input

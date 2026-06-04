@@ -8,16 +8,12 @@ export type BillItem = {
   shade: string;
   qty: number;
   cost: number;
-  // current price may be overridden by user or modified by pricing rules
   price: number;
-  // fetched price
   originalPrice: number;
-  // price after applying rules, but before manual override
   effectivePrice?: number;
   total: number;
   profit: number;
   misc?: boolean;
-  // true only when the cashier has manually overridden the price
   priceOverridden?: boolean;
 };
 
@@ -37,15 +33,18 @@ export type PointsConfig = {
   minRedeem: number;
 };
 
+// FIX BUG-04 + BUG-03: add customerId and customer to BillDraft
 export type BillDraft = {
   items: BillItem[];
   customerName: string;
+  customerId: string;        // FIX BUG-04: store customerId
   phone: string;
   phone2: string;
   redeemPoints: boolean;
   courierCharges: string;
   customerType: CustomerType;
   paymentMode: PaymentMode;
+  customer: Customer | null; // FIX BUG-03: preserve full customer for recovery
 };
 
 export type RetrievedBill = {
@@ -76,5 +75,36 @@ export type PriceContext = {
   qty: number;
   paymentMode: PaymentMode;
   courierCharges: number;
-  items: BillItem[]; // full bill (for slab pricing)
+  items: BillItem[];
+};
+
+// ─── Draft / Pending Bill System (BUG-11 fix) ─────────────────────────────────
+
+export type DraftBillStatus =
+  | "DRAFT"          // in-progress, not yet attempted to save
+  | "PENDING_SAVE"   // save was attempted but failed / no confirmation received
+  | "SAVED";         // successfully committed to backend
+
+export type DraftBill = {
+  draftId: string;             // UUID, client-generated
+  status: DraftBillStatus;
+  reservedBillNo: number | null; // bill number reserved before save attempt
+  createdAt: string;           // ISO timestamp
+  updatedAt: string;
+  items: BillItem[];
+  customerName: string;
+  customerId: string;
+  phone: string;
+  phone2: string;
+  redeemPoints: boolean;
+  courierCharges: string;
+  customerType: CustomerType;
+  paymentMode: PaymentMode;
+  customer: Customer | null;
+  // captured financials at time of save attempt
+  finalTotal?: number;
+  gpayCharges?: number | null;
+  courierChargesNum?: number;
+  saveAttempts: number;
+  lastError?: string;
 };

@@ -107,6 +107,7 @@ export interface SaveBillPayload {
   billDate: string;
   billTime: string;
   customer: {
+    customerId?: string;
     name: string;
     phone: string;
     phone2: string;

@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
+// constants
 const BILLS_SHEET = "Bills";
 const BILL_ITEMS_SHEET = "BillItems";
 const POINTS_CONFIG_SHEET = "PointsConfig";
@@ -1067,6 +1068,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ success: true, billNo: originalBillNo, fallbackUsage });
       }
 
+      console.log({item: it.item, shade: it.shade, storeAvailable, loftAvailable, requested: it.qty
+        
+      });
       // new bill
       const { items, finalTotal = 0, courierCharges = 0, paymentMode = "cash", gpayCharges = null, customer } = req.body;
       if (!items || !Array.isArray(items) || items.length === 0) {

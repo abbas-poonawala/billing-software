@@ -313,7 +313,8 @@ async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
     const keyword = String(r[0] || "").toLowerCase();
     if (keyword) map.set(keyword, Number(r[1]) || 5);
   }
-  return map; }
+  return map; 
+}
 
 async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>): Promise<Map<string, { stock: number; rowIndex: number }>> {
   if (items.length === 0) return new Map();

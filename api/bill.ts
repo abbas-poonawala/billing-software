@@ -1,8 +1,6 @@
-// api/bill.ts - COMPLETE FIXED VERSION
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// ========== constants ==========
 const BILLS_SHEET = "Bills";
 const BILL_ITEMS_SHEET = "BillItems";
 const POINTS_CONFIG_SHEET = "PointsConfig";
@@ -57,7 +55,6 @@ const auth = new google.auth.GoogleAuth({
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
 
-// ========== helpers ==========
 function getISTDateTime() {
   const now = new Date();
   const date = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -79,7 +76,6 @@ function normalisePhone(phone?: string | null): string | null {
   return "+91" + digits.slice(-10);
 }
 
-// ========== sheet name cache per request ==========
 let storeSheetNamesCache: Set<string> | null = null;
 let loftSheetNamesCache: Set<string> | null = null;
 
@@ -91,9 +87,7 @@ async function getStoreSheetNames(gsapi: any): Promise<Set<string>> {
   });
   const sheets = res.data.sheets || [];
   const names = new Set<string>();
-  for (const s of sheets) {
-    names.add(s.properties?.title || "");
-  }
+  for (const s of sheets) names.add(s.properties?.title || "");
   storeSheetNamesCache = names;
   return names;
 }
@@ -106,14 +100,11 @@ async function getLoftSheetNames(gsapi: any): Promise<Set<string>> {
   });
   const sheets = res.data.sheets || [];
   const names = new Set<string>();
-  for (const s of sheets) {
-    names.add(s.properties?.title || "");
-  }
+  for (const s of sheets) names.add(s.properties?.title || "");
   loftSheetNamesCache = names;
   return names;
 }
 
-// ========== bill number ==========
 async function getNextBillNo(gsapi: any): Promise<number> {
   const existingRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -127,7 +118,6 @@ async function getNextBillNo(gsapi: any): Promise<number> {
   return maxBillNo + 1;
 }
 
-// ========== customer ==========
 function generateCustomerId(existingIds: string[]): string {
   const ids = existingIds
     .filter((id) => id?.startsWith("LMS-"))
@@ -156,7 +146,6 @@ async function findCustomerByPhone(gsapi: any, phone: string): Promise<any | nul
   return null;
 }
 
-// ========== points configuration ==========
 async function ensurePointsConfigSheet(gsapi: any) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -335,107 +324,128 @@ async function upsertCustomer(
   return customerId;
 }
 
-// optimised batch read helpers
-async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
-  const res = await gsapi.spreadsheets.values.get({
-    spreadsheetId: LOFT_SHEET_ID,
-    range: "Settings!A2:B",
+// Optimized batch stock fetchers
+async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>, existingSheets: Set<string>) {
+  const result = new Map();
+  const itemsBySheet = new Map<string, Array<{ idx: number; shade: string }>>();
+  for (let i = 0; i < items.length; i++) {
+    const sheet = items[i].item;
+    if (!itemsBySheet.has(sheet)) itemsBySheet.set(sheet, []);
+    itemsBySheet.get(sheet)!.push({ idx: i, shade: items[i].shade });
+  }
+  const ranges: string[] = [];
+  const sheetOrder: string[] = [];
+  for (const sheet of itemsBySheet.keys()) {
+    if (existingSheets.has(sheet)) {
+      ranges.push(`${escapeSheetName(sheet)}!B2:C`);
+      sheetOrder.push(sheet);
+    }
+  }
+  if (ranges.length === 0) return result;
+  const batchRes = await gsapi.spreadsheets.values.batchGet({
+    spreadsheetId: STORE_SHEET_ID,
+    ranges,
   });
-  const rows = res.data.values || [];
-  const map = new Map<string, number>();
-  for (const r of rows) {
-    const keyword = String(r[0] || "").toLowerCase();
-    if (keyword) map.set(keyword, Number(r[1]) || 5);
-  }
-  return map; }
-
-async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>): Promise<Map<string, { stock: number; rowIndex: number }>> {
-  if (items.length === 0) return new Map();
-  const ranges = items.map((it) => `${escapeSheetName(it.item)}!B2:C`);
-  let valueRanges;
-  try {
-    const res = await gsapi.spreadsheets.values.get({
-      spreadsheetId: STORE_SHEET_ID,
-      range: `${escapeSheetName(item)}!B2:C`,
-    });
-    const rows = res.data.values || [];
-    const targetShade = shade.trim().toLowerCase();
+  const valueRanges = batchRes.data.valueRanges || [];
+  for (let i = 0; i < valueRanges.length; i++) {
+    const sheet = sheetOrder[i];
+    const rows = valueRanges[i].values || [];
+    const shadeMap = new Map();
     for (let r = 0; r < rows.length; r++) {
-      const rowShade = rows[r][0]?.toString().trim().toLowerCase() || "";
-      if (rowShade === targetShade) {
-        return { stock: Number(rows[r][1]) || 0, rowIndex: r };
-      }
+      const shade = rows[r][0]?.toString().trim().toLowerCase() || "";
+      if (shade) shadeMap.set(shade, { stock: Number(rows[r][1]) || 0, rowIndex: r });
     }
-    return { stock: 0, rowIndex: -1 };
-  } catch (err) {
-    console.error(`[getSingleStoreStock] error for ${item}|${shade}:`, err);
-    return { stock: 0, rowIndex: -1 };
+    for (const { idx, shade } of itemsBySheet.get(sheet)!) {
+      const key = `${items[idx].item}|${shade.toLowerCase()}`;
+      const found = shadeMap.get(shade.toLowerCase());
+      result.set(key, found || { stock: 0, rowIndex: -1 });
+    }
   }
+  return result;
 }
 
-async function getSingleLoftStock(gsapi: any, item: string, shade: string, packetSizeMap: Map<string, number>): Promise<any> {
-  const targetShade = shade.trim().toLowerCase();
-  const targetItem = item.trim().toLowerCase();
-  
-  // try item sheet first
-  try {
-    const res = await gsapi.spreadsheets.values.get({
+async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade: string }>, existingSheets: Set<string>, packetSizeMap: Map<string, number>) {
+  const result = new Map();
+  const itemsBySheet = new Map<string, Array<{ idx: number; shade: string }>>();
+  for (let i = 0; i < items.length; i++) {
+    const sheet = items[i].item;
+    if (!itemsBySheet.has(sheet)) itemsBySheet.set(sheet, []);
+    itemsBySheet.get(sheet)!.push({ idx: i, shade: items[i].shade });
+  }
+  const ranges: string[] = [];
+  const sheetOrder: string[] = [];
+  for (const sheet of itemsBySheet.keys()) {
+    if (existingSheets.has(sheet)) {
+      ranges.push(`${escapeSheetName(sheet)}!A2:L`);
+      sheetOrder.push(sheet);
+    }
+  }
+  const miscRows: any[][] = [];
+  if (ranges.length) {
+    const batchRes = await gsapi.spreadsheets.values.batchGet({
       spreadsheetId: LOFT_SHEET_ID,
-      range: `${escapeSheetName(item)}!A2:L`,
+      ranges,
     });
-    const rows = res.data.values || [];
-    for (let r = 0; r < rows.length; r++) {
-      const rowShade = rows[r][0]?.toString().trim().toLowerCase() || "";
-      if (rowShade === targetShade) {
-        const individuals = Number(rows[r][4]) || 0;
-        const packets = Number(rows[r][5]) || 0;
-        const packetSize = packetSizeMap.get(targetItem) || 5;
-        return {
-          individuals,
-          packets,
-          packetSize,
-          sheetName: item,
-          rowIndex: r,
-          isMisc: false,
-        };
+    const valueRanges = batchRes.data.valueRanges || [];
+    for (let i = 0; i < valueRanges.length; i++) {
+      const sheet = sheetOrder[i];
+      const rows = valueRanges[i].values || [];
+      const shadeMap = new Map();
+      for (let r = 0; r < rows.length; r++) {
+        const shade = rows[r][0]?.toString().trim().toLowerCase() || "";
+        if (shade) {
+          shadeMap.set(shade, {
+            individuals: Number(rows[r][4]) || 0,
+            packets: Number(rows[r][5]) || 0,
+            rowIndex: r,
+          });
+        }
+      }
+      for (const { idx, shade } of itemsBySheet.get(sheet)!) {
+        const key = `${items[idx].item}|${shade.toLowerCase()}`;
+        const entry = shadeMap.get(shade.toLowerCase());
+        if (entry) {
+          const packetSize = packetSizeMap.get(items[idx].item.toLowerCase()) || 5;
+          result.set(key, { ...entry, packetSize, sheetName: sheet, isMisc: false });
+        }
       }
     }
-  } catch (err) {
-    // sheet might not exist, continue to miscellaneous
   }
-  
-  // try miscellaneous sheet
-  try {
-    const miscRes = await gsapi.spreadsheets.values.get({
-      spreadsheetId: LOFT_SHEET_ID,
-      range: "miscellaneous!A2:L",
-    });
-    const miscRows = miscRes.data.values || [];
-    for (let r = 0; r < miscRows.length; r++) {
-      const miscItem = miscRows[r][0]?.toString().trim().toLowerCase() || "";
-      const miscShade = miscRows[r][1]?.toString().trim().toLowerCase() || "";
-      if (miscItem === targetItem && miscShade === targetShade) {
-        const individuals = Number(miscRows[r][4]) || 0;
-        const packets = Number(miscRows[r][5]) || 0;
-        const packetSize = packetSizeMap.get(targetItem) || 5;
-        return {
-          individuals,
-          packets,
-          packetSize,
-          sheetName: "miscellaneous",
-          rowIndex: r,
-          isMisc: true,
-        };
+  // Fetch miscellaneous sheet once for all items not found
+  const missingItems: Array<{ idx: number; item: string; shade: string }> = [];
+  for (let i = 0; i < items.length; i++) {
+    const key = `${items[i].item}|${items[i].shade.toLowerCase()}`;
+    if (!result.has(key)) missingItems.push({ idx: i, item: items[i].item, shade: items[i].shade });
+  }
+  if (missingItems.length) {
+    try {
+      const miscRes = await gsapi.spreadsheets.values.get({
+        spreadsheetId: LOFT_SHEET_ID,
+        range: "miscellaneous!A2:L",
+      });
+      const miscRows = miscRes.data.values || [];
+      for (const mi of missingItems) {
+        const targetItem = mi.item.toLowerCase();
+        const targetShade = mi.shade.toLowerCase();
+        for (let r = 0; r < miscRows.length; r++) {
+          const miscItem = miscRows[r][0]?.toString().trim().toLowerCase() || "";
+          const miscShade = miscRows[r][1]?.toString().trim().toLowerCase() || "";
+          if (miscItem === targetItem && miscShade === targetShade) {
+            const individuals = Number(miscRows[r][4]) || 0;
+            const packets = Number(miscRows[r][5]) || 0;
+            const packetSize = packetSizeMap.get(targetItem) || 5;
+            result.set(`${mi.item}|${targetShade}`, { individuals, packets, packetSize, sheetName: "miscellaneous", rowIndex: r, isMisc: true });
+            break;
+          }
+        }
       }
+    } catch (err) {
+      console.error("[batchGetLoftStock] misc read failed", err);
     }
-  } catch (err) {
-    console.error(`[getSingleLoftStock] error reading miscellaneous:`, err);
   }
-  
-  return { individuals: 0, packets: 0, packetSize: 5, sheetName: "", rowIndex: -1, isMisc: false };
+  return result;
 }
 
-// ========== preload packet size map ==========
 async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
   const res = await gsapi.spreadsheets.values.get({
     spreadsheetId: LOFT_SHEET_ID,
@@ -450,7 +460,6 @@ async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
   return map;
 }
 
-// ========== stock deduction ==========
 async function deductStoreStock(
   gsapi: any,
   item: string,
@@ -582,7 +591,6 @@ async function getLoftFallbackLogForBill(gsapi: any, billNo: number): Promise<an
   }
 }
 
-// ========== profit and cost ==========
 async function getCostMap(gsapi: any): Promise<Map<string, number>> {
   const profitRes = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -646,7 +654,6 @@ function createBillSummaryRow(
   ];
 }
 
-// ========== get bill by number ==========
 async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: any; items: any[] } | null> {
   const batchRes = await gsapi.spreadsheets.values.batchGet({
     spreadsheetId: STORE_SHEET_ID,
@@ -654,10 +661,8 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
   });
   const billsRows = batchRes.data.valueRanges[0]?.values || [];
   const itemsRows = batchRes.data.valueRanges[1]?.values || [];
-
   const summaryRow = billsRows.find((row: any) => Number(row[BILLS_COLUMNS.BILL_NO]) === billNo);
   if (!summaryRow) return null;
-
   const itemRows = itemsRows.filter((row: any) => Number(row[BILL_ITEMS_COLUMNS.BILL_NO]) === billNo);
   const items = itemRows.map((row: any) => ({
     item: row[BILL_ITEMS_COLUMNS.ITEM],
@@ -668,7 +673,6 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
     profit: Number(row[BILL_ITEMS_COLUMNS.PROFIT]) || 0,
     cost: 0,
   }));
-
   return {
     summary: {
       billNo: Number(summaryRow[BILLS_COLUMNS.BILL_NO]),
@@ -686,7 +690,6 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
   };
 }
 
-// ========== delete bill rows ==========
 async function deleteBillRows(gsapi: any, billNo: number) {
   const sheetMeta = await gsapi.spreadsheets.get({
     spreadsheetId: STORE_SHEET_ID,
@@ -695,27 +698,20 @@ async function deleteBillRows(gsapi: any, billNo: number) {
   const billsSheetObj = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILLS_SHEET);
   const itemsSheetObj = (sheetMeta.data.sheets || []).find((s: any) => s.properties?.title === BILL_ITEMS_SHEET);
   if (!billsSheetObj || !itemsSheetObj) return;
-
   const batchRes = await gsapi.spreadsheets.values.batchGet({
     spreadsheetId: STORE_SHEET_ID,
     ranges: [`${BILLS_SHEET}!A:J`, `${BILL_ITEMS_SHEET}!A:G`],
   });
   const billsRows = batchRes.data.valueRanges[0]?.values || [];
   const itemsRows = batchRes.data.valueRanges[1]?.values || [];
-
   const billRowIndices: number[] = [];
   for (let i = 0; i < billsRows.length; i++) {
-    if (Number(billsRows[i][BILLS_COLUMNS.BILL_NO]) === billNo) {
-      billRowIndices.push(i);
-    }
+    if (Number(billsRows[i][BILLS_COLUMNS.BILL_NO]) === billNo) billRowIndices.push(i);
   }
   const itemRowIndices: number[] = [];
   for (let i = 0; i < itemsRows.length; i++) {
-    if (Number(itemsRows[i][BILL_ITEMS_COLUMNS.BILL_NO]) === billNo) {
-      itemRowIndices.push(i);
-    }
+    if (Number(itemsRows[i][BILL_ITEMS_COLUMNS.BILL_NO]) === billNo) itemRowIndices.push(i);
   }
-
   const requests = [];
   for (const idx of billRowIndices.sort((a, b) => b - a)) {
     requests.push({
@@ -749,13 +745,10 @@ async function deleteBillRows(gsapi: any, billNo: number) {
   }
 }
 
-// ========== main handler ==========
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const client = await auth.getClient();
     const gsapi = google.sheets({ version: "v4", auth: client as any });
-
-    // reset caches per request
     storeSheetNamesCache = null;
     loftSheetNamesCache = null;
 
@@ -763,15 +756,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const action = req.query.action as string;
       if (action === "getBill") {
         const billNo = Number(req.query.billNo);
-        if (!billNo || billNo <= 0) {
-          return res.status(400).json({ error: "invalid bill number" });
-        }
+        if (!billNo || billNo <= 0) return res.status(400).json({ error: "invalid bill number" });
         const billData = await getBillByNumber(gsapi, billNo);
-        if (!billData) {
-          return res.status(404).json({ error: "bill not found" });
-        }
+        if (!billData) return res.status(404).json({ error: "bill not found" });
         const { summary, items } = billData;
-
         let customerName = "unknown";
         let customerPhone = "";
         if (summary.customerId) {
@@ -786,7 +774,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             customerPhone = custRow[2] || "";
           }
         }
-
         return res.status(200).json({
           bill: {
             billNo: summary.billNo,
@@ -804,23 +791,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         });
       }
-
       const billsRes = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
         range: `${BILLS_SHEET}!A:A`,
       });
-      const existingBills = (billsRes.data.values || [])
-        .flat()
-        .map(Number)
-        .filter((n) => !isNaN(n));
+      const existingBills = (billsRes.data.values || []).flat().map(Number).filter((n) => !isNaN(n));
       const lastBillNo = existingBills.length > 0 ? Math.max(...existingBills) : 0;
       return res.status(200).json({ billNo: lastBillNo });
     }
 
     if (req.method === "POST") {
       const { action } = req.query;
-
-      // ---------- edit bill ----------
       if (action === "edit") {
         const {
           originalBillNo,
@@ -833,85 +814,122 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           originalDate,
           originalTime,
         } = req.body;
-
         if (!originalBillNo || typeof originalBillNo !== "number" || originalBillNo <= 0) {
           return res.status(400).json({ error: "originalBillNo must be a positive number" });
         }
-        if (!items || !Array.isArray(items)) {
-          return res.status(400).json({ error: "items must be an array" });
-        }
-        if (!customer || !customer.phone) {
-          return res.status(400).json({ error: "customer with phone is required" });
-        }
-
+        if (!items || !Array.isArray(items)) return res.status(400).json({ error: "items must be an array" });
+        if (!customer || !customer.phone) return res.status(400).json({ error: "customer with phone is required" });
         const { date, time } = getISTDateTime();
         const timestamp = `${date} ${time}`;
-
         const oldBillData = await getBillByNumber(gsapi, originalBillNo);
-        if (!oldBillData) {
-          return res.status(404).json({ error: "original bill not found" });
-        }
+        if (!oldBillData) return res.status(404).json({ error: "original bill not found" });
         const oldItems = oldBillData.items;
         const oldSummary = oldBillData.summary;
-
-        // reverse old stock
         const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
         for (const item of oldItems) {
           const itemName = item.item;
           const shadeName = item.shade;
           const qty = item.qty;
           if (!itemName || !shadeName || qty === 0) continue;
-
-          const storeInfo = await getSingleStoreStock(gsapi, itemName, shadeName);
-          if (storeInfo.rowIndex !== -1) {
-            const newStock = storeInfo.stock + qty;
-            await gsapi.spreadsheets.values.update({
+          const storeSheetNames = await getStoreSheetNames(gsapi);
+          if (storeSheetNames.has(itemName)) {
+            const storeRes = await gsapi.spreadsheets.values.get({
               spreadsheetId: STORE_SHEET_ID,
-              range: `${escapeSheetName(itemName)}!C${storeInfo.rowIndex + 2}`,
-              valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newStock]] },
+              range: `${escapeSheetName(itemName)}!B2:C`,
             });
+            const rows = storeRes.data.values || [];
+            const targetShade = shadeName.toLowerCase();
+            let storeRowIndex = -1;
+            let storeStock = 0;
+            for (let r = 0; r < rows.length; r++) {
+              if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
+                storeStock = Number(rows[r][1]) || 0;
+                storeRowIndex = r;
+                break;
+              }
+            }
+            if (storeRowIndex !== -1) {
+              await gsapi.spreadsheets.values.update({
+                spreadsheetId: STORE_SHEET_ID,
+                range: `${escapeSheetName(itemName)}!C${storeRowIndex + 2}`,
+                valueInputOption: "USER_ENTERED",
+                requestBody: { values: [[storeStock + qty]] },
+              });
+            }
           }
-
           const logEntry = fallbackLog.find(
-            (log: any) =>
-              log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
+            (log: any) => log[2]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
               log[3]?.toString().trim().toLowerCase() === shadeName.toLowerCase()
           );
+          const packetSizeMap = await preloadPacketSizeMap(gsapi);
+          const loftSheetNames = await getLoftSheetNames(gsapi);
           if (logEntry) {
             const individualsUsed = Number(logEntry[5]) || 0;
             const packetsOpened = Number(logEntry[6]) || 0;
             const leftoverBalls = Number(logEntry[7]) || 0;
-            const packetSizeMap = await preloadPacketSizeMap(gsapi);
-            const loftEntry = await getSingleLoftStock(gsapi, itemName, shadeName, packetSizeMap);
-            if (loftEntry && loftEntry.rowIndex !== -1) {
-              const newIndiv = loftEntry.individuals + leftoverBalls;
-              const newPackets = loftEntry.packets + packetsOpened;
-              const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
-              await gsapi.spreadsheets.values.update({
+            if (loftSheetNames.has(itemName)) {
+              const loftRes = await gsapi.spreadsheets.values.get({
                 spreadsheetId: LOFT_SHEET_ID,
-                range,
-                valueInputOption: "USER_ENTERED",
-                requestBody: { values: [[newIndiv, newPackets]] },
+                range: `${escapeSheetName(itemName)}!A2:L`,
               });
+              const rows = loftRes.data.values || [];
+              const targetShade = shadeName.toLowerCase();
+              for (let r = 0; r < rows.length; r++) {
+                if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
+                  const individuals = Number(rows[r][4]) || 0;
+                  const packets = Number(rows[r][5]) || 0;
+                  await gsapi.spreadsheets.values.update({
+                    spreadsheetId: LOFT_SHEET_ID,
+                    range: `${escapeSheetName(itemName)}!E${r + 2}:F${r + 2}`,
+                    valueInputOption: "USER_ENTERED",
+                    requestBody: { values: [[individuals + leftoverBalls, packets + packetsOpened]] },
+                  });
+                  break;
+                }
+              }
             }
           } else {
-            const packetSizeMap = await preloadPacketSizeMap(gsapi);
-            const loftEntry = await getSingleLoftStock(gsapi, itemName, shadeName, packetSizeMap);
-            if (loftEntry && loftEntry.rowIndex !== -1) {
-              const newIndiv = loftEntry.individuals + qty;
-              const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}`;
-              await gsapi.spreadsheets.values.update({
+            if (loftSheetNames.has(itemName)) {
+              const loftRes = await gsapi.spreadsheets.values.get({
                 spreadsheetId: LOFT_SHEET_ID,
-                range,
-                valueInputOption: "USER_ENTERED",
-                requestBody: { values: [[newIndiv]] },
+                range: `${escapeSheetName(itemName)}!A2:L`,
               });
+              const rows = loftRes.data.values || [];
+              const targetShade = shadeName.toLowerCase();
+              for (let r = 0; r < rows.length; r++) {
+                if (rows[r][0]?.toString().trim().toLowerCase() === targetShade) {
+                  const individuals = Number(rows[r][4]) || 0;
+                  await gsapi.spreadsheets.values.update({
+                    spreadsheetId: LOFT_SHEET_ID,
+                    range: `${escapeSheetName(itemName)}!E${r + 2}`,
+                    valueInputOption: "USER_ENTERED",
+                    requestBody: { values: [[individuals + qty]] },
+                  });
+                  break;
+                }
+              }
+            } else {
+              const miscRes = await gsapi.spreadsheets.values.get({
+                spreadsheetId: LOFT_SHEET_ID,
+                range: "miscellaneous!A2:L",
+              });
+              const miscRows = miscRes.data.values || [];
+              for (let r = 0; r < miscRows.length; r++) {
+                if (miscRows[r][0]?.toString().trim().toLowerCase() === itemName.toLowerCase() &&
+                    miscRows[r][1]?.toString().trim().toLowerCase() === shadeName.toLowerCase()) {
+                  const individuals = Number(miscRows[r][4]) || 0;
+                  await gsapi.spreadsheets.values.update({
+                    spreadsheetId: LOFT_SHEET_ID,
+                    range: `miscellaneous!E${r + 2}`,
+                    valueInputOption: "USER_ENTERED",
+                    requestBody: { values: [[individuals + qty]] },
+                  });
+                  break;
+                }
+              }
             }
           }
         }
-
-        // reverse old customer points
         const oldCustomerId = oldSummary.customerId;
         if (oldCustomerId) {
           const custRes = await gsapi.spreadsheets.values.get({
@@ -925,51 +943,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const oldSpend = Number(row[CUSTOMER_COLUMNS.EXPENDITURE]) || 0;
             const oldBills = Number(row[CUSTOMER_COLUMNS.TOTAL_BILLS]) || 0;
             const oldPoints = Number(row[CUSTOMER_COLUMNS.POINTS]) || 0;
-            const oldFinalTotal = oldSummary.finalTotal;
             const config = await getPointsConfig(gsapi);
-            const oldPointsEarned = calculatePointsEarned(oldFinalTotal, oldBills - 1, config);
+            const oldPointsEarned = calculatePointsEarned(oldSummary.finalTotal, oldBills - 1, config);
             await gsapi.spreadsheets.values.update({
               spreadsheetId: STORE_SHEET_ID,
               range: `Customers!G${custIdx + 2}:I${custIdx + 2}`,
               valueInputOption: "USER_ENTERED",
               requestBody: {
-                values: [[oldSpend - oldFinalTotal, oldBills - 1, oldPoints - oldPointsEarned]],
+                values: [[oldSpend - oldSummary.finalTotal, oldBills - 1, oldPoints - oldPointsEarned]],
               },
             });
           }
         }
-
-        // delete old bill rows
         await deleteBillRows(gsapi, originalBillNo);
-
-        // ----- validate and deduct new stock -----
+        const storeSheetNames = await getStoreSheetNames(gsapi);
+        const loftSheetNames = await getLoftSheetNames(gsapi);
         const packetSizeMap = await preloadPacketSizeMap(gsapi);
-        
-        // fetch stock for all items (one read per unique sheet is fine, we're within quota)
+        const storeStockMap = await batchGetStoreStock(gsapi, items, storeSheetNames);
+        const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
         const stockInfos = [];
         for (const it of items) {
-          const storeInfo = await getSingleStoreStock(gsapi, it.item, it.shade);
-          const loftInfo = await getSingleLoftStock(gsapi, it.item, it.shade, packetSizeMap);
+          const key = `${it.item}|${it.shade.toLowerCase()}`;
+          const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
+          const loftEntry = loftStockMap.get(key);
           const storeAvailable = storeInfo.stock;
-          const loftAvailable = loftInfo ? loftInfo.individuals + loftInfo.packets * loftInfo.packetSize : 0;
-          
-          console.log(`[stock check] ${it.item} | ${it.shade}`);
-          console.log(`  store: ${storeAvailable}, rowIndex: ${storeInfo.rowIndex}`);
-          console.log(`  loft: ${loftInfo?.individuals || 0} indiv, ${loftInfo?.packets || 0} packets`);
-          console.log(`  total: ${storeAvailable + loftAvailable}, requested: ${it.qty}`);
-          
+          const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
           if (storeAvailable + loftAvailable < it.qty) {
-            return res.status(400).json({ 
-              error: `insufficient stock for ${it.item} ${it.shade}. Available: ${storeAvailable + loftAvailable}, Requested: ${it.qty}` 
-            });
+            return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
           }
-          stockInfos.push({
-            ...it,
-            storeInfo: { rowIndex: storeInfo.rowIndex, stock: storeInfo.stock },
-            loftInfo,
-          });
+          stockInfos.push({ ...it, storeInfo, loftInfo: loftEntry });
         }
-
         const fallbackUsage = [];
         const deductedStore = [];
         const deductedLoft = [];
@@ -979,15 +982,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             let remaining = info.qty;
             let usedStore = 0;
             if (info.storeInfo.rowIndex !== -1 && info.storeInfo.stock > 0) {
-              usedStore = await deductStoreStock(
-                gsapi,
-                info.item,
-                info.shade,
-                info.storeInfo.rowIndex,
-                info.storeInfo.stock,
-                remaining,
-                timestamp
-              );
+              usedStore = await deductStoreStock(gsapi, info.item, info.shade, info.storeInfo.rowIndex, info.storeInfo.stock, remaining, timestamp);
               remaining -= usedStore;
               deductedStore.push({ info, usedStore });
             }
@@ -1000,76 +995,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 packetsOpened: loftDetails.packetsOpened,
               });
               deductedLoft.push({ info, loftDetails });
-              await logLoftFallback(
-                gsapi,
-                originalBillNo,
-                info.item,
-                info.shade,
-                remaining,
-                loftDetails.individualsUsed,
-                loftDetails.packetsOpened,
-                loftDetails.leftoverBalls,
-                info.loftInfo.packetSize,
-                timestamp
-              );
+              await logLoftFallback(gsapi, originalBillNo, info.item, info.shade, remaining,
+                loftDetails.individualsUsed, loftDetails.packetsOpened, loftDetails.leftoverBalls, info.loftInfo.packetSize, timestamp);
             }
           }
         } catch (err) {
-          console.error("[edit] stock deduction error:", err);
           for (const { info, usedStore } of deductedStore) {
-            const newStock = info.storeInfo.stock + usedStore;
             await gsapi.spreadsheets.values.update({
               spreadsheetId: STORE_SHEET_ID,
               range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
               valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newStock]] },
+              requestBody: { values: [[info.storeInfo.stock + usedStore]] },
             });
           }
           for (const { info, loftDetails } of deductedLoft) {
             const loftEntry = info.loftInfo;
-            const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
-            const newPackets = loftEntry.packets + loftDetails.packetsOpened;
-            const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
             await gsapi.spreadsheets.values.update({
               spreadsheetId: LOFT_SHEET_ID,
-              range,
+              range: `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`,
               valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newIndiv, newPackets]] },
+              requestBody: { values: [[loftEntry.individuals + loftDetails.leftoverBalls, loftEntry.packets + loftDetails.packetsOpened]] },
             });
           }
           return res.status(500).json({ error: "stock deduction failed, rolled back" });
         }
-
-        // upsert customer
         let customerId;
         try {
           customerId = await upsertCustomer(gsapi, customer, originalDate, finalTotal);
         } catch (err: any) {
           for (const { info, usedStore } of deductedStore) {
-            const newStock = info.storeInfo.stock + usedStore;
             await gsapi.spreadsheets.values.update({
               spreadsheetId: STORE_SHEET_ID,
               range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
               valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newStock]] },
+              requestBody: { values: [[info.storeInfo.stock + usedStore]] },
             });
           }
           for (const { info, loftDetails } of deductedLoft) {
             const loftEntry = info.loftInfo;
-            const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
-            const newPackets = loftEntry.packets + loftDetails.packetsOpened;
-            const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
             await gsapi.spreadsheets.values.update({
               spreadsheetId: LOFT_SHEET_ID,
-              range,
+              range: `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`,
               valueInputOption: "USER_ENTERED",
-              requestBody: { values: [[newIndiv, newPackets]] },
+              requestBody: { values: [[loftEntry.individuals + loftDetails.leftoverBalls, loftEntry.packets + loftDetails.packetsOpened]] },
             });
           }
           return res.status(500).json({ error: `customer creation failed: ${err.message}` });
         }
-
-        // write new bill rows
         const costMap = await getCostMap(gsapi);
         let totalProfit = 0;
         const itemRows = [];
@@ -1078,20 +1050,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           totalProfit += profit;
           itemRows.push(createBillItemRow(originalBillNo, it, profit, total));
         }
-
-        const summaryRow = createBillSummaryRow(
-          originalBillNo,
-          customerId,
-          originalDate,
-          originalTime,
-          paymentMode,
-          courierCharges,
-          gpayCharges,
-          finalTotal,
-          totalProfit,
-          timestamp
-        );
-
+        const summaryRow = createBillSummaryRow(originalBillNo, customerId, originalDate, originalTime,
+          paymentMode, courierCharges, gpayCharges, finalTotal, totalProfit, timestamp);
         await gsapi.spreadsheets.values.append({
           spreadsheetId: STORE_SHEET_ID,
           range: `${BILL_ITEMS_SHEET}!A:G`,
@@ -1104,20 +1064,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [summaryRow] },
         });
-
         return res.status(200).json({ success: true, billNo: originalBillNo, fallbackUsage });
       }
 
-      // ---------- new bill ----------
-      const {
-        items,
-        finalTotal = 0,
-        courierCharges = 0,
-        paymentMode = "cash",
-        gpayCharges = null,
-        customer,
-      } = req.body;
-
+      // new bill
+      const { items, finalTotal = 0, courierCharges = 0, paymentMode = "cash", gpayCharges = null, customer } = req.body;
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: "items must be a non-empty array" });
       }
@@ -1125,47 +1076,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "customer object with phone is required" });
       }
       const phoneDigits = customer.phone.replace(/[^0-9]/g, "");
-      if (phoneDigits.length < 10) {
-        return res.status(400).json({ error: "customer phone must have at least 10 digits" });
-      }
+      if (phoneDigits.length < 10) return res.status(400).json({ error: "customer phone must have at least 10 digits" });
       if (customer.type === "courier" && courierCharges <= 0) {
         return res.status(400).json({ error: "courier charges required for courier orders" });
       }
-
       const { date, time } = getISTDateTime();
       const timestamp = `${date} ${time}`;
       const billNo = await getNextBillNo(gsapi);
-
-      // fetch all required data
+      const storeSheetNames = await getStoreSheetNames(gsapi);
+      const loftSheetNames = await getLoftSheetNames(gsapi);
       const packetSizeMap = await preloadPacketSizeMap(gsapi);
+      const storeStockMap = await batchGetStoreStock(gsapi, items, storeSheetNames);
+      const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
       const costMap = await getCostMap(gsapi);
-      
-      // validate stock - one read per unique item sheet (still efficient)
       const stockInfos = [];
       for (const it of items) {
-        const storeInfo = await getSingleStoreStock(gsapi, it.item, it.shade);
-        const loftInfo = await getSingleLoftStock(gsapi, it.item, it.shade, packetSizeMap);
+        const key = `${it.item}|${it.shade.toLowerCase()}`;
+        const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
+        const loftEntry = loftStockMap.get(key);
         const storeAvailable = storeInfo.stock;
-        const loftAvailable = loftInfo ? loftInfo.individuals + loftInfo.packets * loftInfo.packetSize : 0;
-        
-        console.log(`[stock check] ${it.item} | ${it.shade}`);
-        console.log(`  store: ${storeAvailable}, rowIndex: ${storeInfo.rowIndex}`);
-        console.log(`  loft: ${loftInfo?.individuals || 0} indiv, ${loftInfo?.packets || 0} packets`);
-        console.log(`  total: ${storeAvailable + loftAvailable}, requested: ${it.qty}`);
-        
+        const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
         if (storeAvailable + loftAvailable < it.qty) {
-          return res.status(400).json({ 
-            error: `insufficient stock for ${it.item} ${it.shade}. Available: ${storeAvailable + loftAvailable}, Requested: ${it.qty}` 
-          });
+          return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
         }
-        stockInfos.push({
-          ...it,
-          storeInfo: { rowIndex: storeInfo.rowIndex, stock: storeInfo.stock },
-          loftInfo,
-        });
+        stockInfos.push({ ...it, storeInfo, loftInfo: loftEntry });
       }
-
-      // deduct stock
       const fallbackUsage = [];
       const deductedStore = [];
       const deductedLoft = [];
@@ -1175,15 +1110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           let remaining = info.qty;
           let usedStore = 0;
           if (info.storeInfo.rowIndex !== -1 && info.storeInfo.stock > 0) {
-            usedStore = await deductStoreStock(
-              gsapi,
-              info.item,
-              info.shade,
-              info.storeInfo.rowIndex,
-              info.storeInfo.stock,
-              remaining,
-              timestamp
-            );
+            usedStore = await deductStoreStock(gsapi, info.item, info.shade, info.storeInfo.rowIndex, info.storeInfo.stock, remaining, timestamp);
             remaining -= usedStore;
             deductedStore.push({ info, usedStore });
           }
@@ -1196,76 +1123,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               packetsOpened: loftDetails.packetsOpened,
             });
             deductedLoft.push({ info, loftDetails });
-            await logLoftFallback(
-              gsapi,
-              billNo,
-              info.item,
-              info.shade,
-              remaining,
-              loftDetails.individualsUsed,
-              loftDetails.packetsOpened,
-              loftDetails.leftoverBalls,
-              info.loftInfo.packetSize,
-              timestamp
-            );
+            await logLoftFallback(gsapi, billNo, info.item, info.shade, remaining,
+              loftDetails.individualsUsed, loftDetails.packetsOpened, loftDetails.leftoverBalls, info.loftInfo.packetSize, timestamp);
           }
         }
       } catch (err) {
-        console.error("[new] stock deduction error:", err);
         for (const { info, usedStore } of deductedStore) {
-          const newStock = info.storeInfo.stock + usedStore;
           await gsapi.spreadsheets.values.update({
             spreadsheetId: STORE_SHEET_ID,
             range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
             valueInputOption: "USER_ENTERED",
-            requestBody: { values: [[newStock]] },
+            requestBody: { values: [[info.storeInfo.stock + usedStore]] },
           });
         }
         for (const { info, loftDetails } of deductedLoft) {
           const loftEntry = info.loftInfo;
-          const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
-          const newPackets = loftEntry.packets + loftDetails.packetsOpened;
-          const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
           await gsapi.spreadsheets.values.update({
             spreadsheetId: LOFT_SHEET_ID,
-            range,
+            range: `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`,
             valueInputOption: "USER_ENTERED",
-            requestBody: { values: [[newIndiv, newPackets]] },
+            requestBody: { values: [[loftEntry.individuals + loftDetails.leftoverBalls, loftEntry.packets + loftDetails.packetsOpened]] },
           });
         }
         return res.status(500).json({ error: "stock deduction failed, rolled back" });
       }
-
-      // upsert customer
       let customerId;
       try {
         customerId = await upsertCustomer(gsapi, customer, date, finalTotal);
       } catch (err: any) {
         for (const { info, usedStore } of deductedStore) {
-          const newStock = info.storeInfo.stock + usedStore;
           await gsapi.spreadsheets.values.update({
             spreadsheetId: STORE_SHEET_ID,
             range: `${escapeSheetName(info.item)}!C${info.storeInfo.rowIndex + 2}`,
             valueInputOption: "USER_ENTERED",
-            requestBody: { values: [[newStock]] },
+            requestBody: { values: [[info.storeInfo.stock + usedStore]] },
           });
         }
         for (const { info, loftDetails } of deductedLoft) {
           const loftEntry = info.loftInfo;
-          const newIndiv = loftEntry.individuals + loftDetails.leftoverBalls;
-          const newPackets = loftEntry.packets + loftDetails.packetsOpened;
-          const range = `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`;
           await gsapi.spreadsheets.values.update({
             spreadsheetId: LOFT_SHEET_ID,
-            range,
+            range: `${escapeSheetName(loftEntry.sheetName)}!E${loftEntry.rowIndex + 2}:F${loftEntry.rowIndex + 2}`,
             valueInputOption: "USER_ENTERED",
-            requestBody: { values: [[newIndiv, newPackets]] },
+            requestBody: { values: [[loftEntry.individuals + loftDetails.leftoverBalls, loftEntry.packets + loftDetails.packetsOpened]] },
           });
         }
         return res.status(500).json({ error: `customer creation failed: ${err.message}` });
       }
-
-      // write bill rows
       let totalProfit = 0;
       const itemRows = [];
       for (const it of items) {
@@ -1273,20 +1177,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         totalProfit += profit;
         itemRows.push(createBillItemRow(billNo, it, profit, total));
       }
-
-      const summaryRow = createBillSummaryRow(
-        billNo,
-        customerId,
-        date,
-        time,
-        paymentMode,
-        courierCharges,
-        gpayCharges,
-        finalTotal,
-        totalProfit,
-        timestamp
-      );
-
+      const summaryRow = createBillSummaryRow(billNo, customerId, date, time, paymentMode,
+        courierCharges, gpayCharges, finalTotal, totalProfit, timestamp);
       await gsapi.spreadsheets.values.append({
         spreadsheetId: STORE_SHEET_ID,
         range: `${BILL_ITEMS_SHEET}!A:G`,
@@ -1299,10 +1191,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [summaryRow] },
       });
-
       return res.status(200).json({ billNo, customerId, fallbackUsage });
     }
-
     res.status(405).json({ error: "method not allowed" });
   } catch (err: any) {
     console.error("[handler_error]", err);

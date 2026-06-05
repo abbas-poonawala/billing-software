@@ -94,10 +94,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleGetPrice(gsapi, req, res);
       case "getCost":
         return await handleGetCost(gsapi, req, res);
-      case "getBoxPrice":
-        return await handleGetBoxPrice(gsapi, req, res);
-      case "getPointsConfig":
-        return await handleGetPointsConfig(gsapi, res);
       case "getCustomer":
         return await handleGetCustomer(gsapi, req, res);
       case "searchCustomersByName":

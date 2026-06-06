@@ -94,7 +94,7 @@ export default function App() {
   // bill no refresh
   const refreshBillNo = () => {
     if (store.editingBillNo) return;
-    apiFetchNextBillNo().then(n => store.setNextBillNo(n)).catch(() => store.setNextBillNo(1));
+    apiFetchNextBillNo().then(n => store.setNextBillNo(n)).catch(() => showToast("Unable to fetch bill number", "error"))
   };
 
   useEffect(() => {

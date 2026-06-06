@@ -8,26 +8,16 @@
  * ✅ Empty:    "" or "91" → ""  (no valid mobile)
  */
 export function normalizePhone(phone: string): string {
-  const input = phone.toString().trim();
-  if (!input) return "";
-
-  // already has + prefix - trust it, just strip extras
-  if (input.startsWith("+")) {
-    return input;
+  const trimmed = phone.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("+")) {
+    return trimmed;
   }
-
-  // strip all non-digits
-  const digits = input.replace(/[^0-9]/g, "");
-
-  // extract the last 10 digits [actual mobile no]
-  const mobile = digits.slice(-10);
-
-  // if no valid 10-digit mobile, return empty
-  if (mobile.length < 10) return "";
-
-  return `+91${mobile}`;
+  const dig = trimmed.replace(/\D/g, "");
+  if (dig.length < 10) { return `+91${dig}`;
 }
-
+return trimmed;
+}
 // returns true if the phone string represents a valid indian mobile number
 
 export function isValidPhone(phone: string): boolean {

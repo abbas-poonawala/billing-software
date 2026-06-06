@@ -64,10 +64,15 @@ function findBestShadeMatch(target: string, rows: any[]): any {
 }
 
 function normalizePhone(phone: string): string {
-  const input = phone.toString().trim();
-  if (input.startsWith("+")) return input; // keep international format
-  const digits = input.replace(/[^0-9]/g, "");
-  return "+91" + digits.slice(-10); // no country code = add +91 to last 10 digits
+  const trimmed = phone.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("+")) {
+    return trimmed;
+  }
+  const dig = trimmed.replace(/\D/g, "");
+  if (dig.length < 10) { return `+91${dig}`;
+}
+return trimmed;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

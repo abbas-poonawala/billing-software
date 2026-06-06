@@ -8,21 +8,49 @@ const DRAFT_KEY = "billDraft";
 
 export function useBillDraft() {
   const {
-    items, customerName, phone, phone2,
-    redeemPoints, courierCharges, customerType, paymentMode,
-    updateItems, setCustomerName, setPhone, setPhone2,
-    setRedeemPoints, setCourierCharges, setCustomerType, setPaymentMode,
-  } = useBillingStore();
+  items,
+  customerName,
+  customerId,
+  customer,
+  phone,
+  phone2,
+  redeemPoints,
+  courierCharges,
+  customerType,
+  paymentMode,
+
+  updateItems,
+  setCustomerName,
+  setCustomerId,
+  setCustomer,
+  setPhone,
+  setPhone2,
+  setRedeemPoints,
+  setCourierCharges,
+  setCustomerType,
+  setPaymentMode,
+} = useBillingStore();
 
   // auto-save whenever bill data changes
   useEffect(() => {
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      localStorage.removeItem(DRAFT_KEY);
+      return;
+    }
     const draft: BillDraft = {
-      items, customerName, phone, phone2,
-      redeemPoints, courierCharges, customerType, paymentMode,
+      items,
+      customerName,
+      customerId,
+      customer,
+      phone,
+      phone2,
+      redeemPoints,
+      courierCharges,
+      customerType,
+      paymentMode,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }, [items, customerName, phone, phone2, redeemPoints, courierCharges, customerType, paymentMode]);
+  }, [items, customerName, customerId, customer, phone, phone2, redeemPoints, courierCharges, customerType, paymentMode]);
 
   // recover on mount
   useEffect(() => {
@@ -59,6 +87,8 @@ export function useBillDraft() {
 
       updateItems(validatedItems);
       setCustomerName(draft.customerName || "");
+      setCustomerId(draft.customerId ?? "");
+      setCustomer(draft.customer ?? null);
       setPhone(draft.phone || "");
       setPhone2(draft.phone2 || "");
       setRedeemPoints(draft.redeemPoints || false);

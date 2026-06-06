@@ -107,7 +107,7 @@ export default function PrintBill({
       <div style={styles.totalsBlock}>
         {courierCharges > 0 && (
           <div style={styles.chargeRow}>
-            <span>Handling Charges:</span>
+            <span>Forwarding Charges:</span>
             <span>+ ₹{formatPrice(courierCharges)}</span>
           </div>
         )}

@@ -67,12 +67,6 @@ function escapeSheetName(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
-/**
- * Centralized stock normalization engine helper
- * - trims leading/trailing whitespace
- * - collapses multiple spaces into one single space
- * - lowercase for safe comparisons
- */
 function normaliseString(str: string | null | undefined): string {
   if (!str) return "";
   return str.toString().trim().replace(/\s+/g, " ").toLowerCase();
@@ -117,7 +111,6 @@ async function getLoftSheetNames(gsapi: any): Promise<Set<string>> {
   return names;
 }
 
-// Check for dynamic sheet existences using normalization
 function findMatchingSheetName(sheetSet: Set<string>, name: string): string | null {
   const normName = normaliseString(name);
   for (const sheet of sheetSet) {
@@ -345,7 +338,6 @@ async function upsertCustomer(
   return customerId;
 }
 
-// Optimized batch stock fetchers with consistent normalization
 async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade: string }>, existingSheets: Set<string>) {
   const result = new Map();
   const itemsBySheet = new Map<string, Array<{ idx: number; shade: string }>>();
@@ -386,6 +378,17 @@ async function batchGetStoreStock(gsapi: any, items: Array<{ item: string; shade
   return result;
 }
 
+// ─── PATCHED: batchGetLoftStock ───────────────────────────────────────────────
+// FIX-1: Do not write a sentinel {stock:0, rowIndex:-1} when a shade is not
+//   found in the item's dedicated loft tab. The old code used:
+//     result.set(key, found || { stock: 0, rowIndex: -1 });
+//   This made result.has(key)===true, permanently blocking the misc-sheet
+//   fallback for that (item, shade) pair.
+//   Now we only call result.set when `found` is a real match.
+//
+// FIX-5: The old found path did not include packetSize or sheetName, both of
+//   which deductLoftStock requires. Added them to the result entry.
+// ─────────────────────────────────────────────────────────────────────────────
 async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade: string }>, existingSheets: Set<string>, packetSizeMap: Map<string, number>) {
   const result = new Map();
   const itemsBySheet = new Map<string, Array<{ idx: number; shade: string }>>();
@@ -425,14 +428,20 @@ async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade:
       }
       for (const { idx, shade } of itemsBySheet.get(sheet)!) {
         const key = `${normaliseString(items[idx].item)}|${normaliseString(shade)}`;
-        const entry = shadeMap.get(normaliseString(shade));
-        if (entry) {
+        const found = shadeMap.get(normaliseString(shade));
+        // FIX-1: only write to result when a real match exists.
+        // Leaving key absent lets missingItems route this to the misc fallback.
+        // FIX-5: include packetSize and sheetName that deductLoftStock requires.
+        if (found) {
           const packetSize = packetSizeMap.get(normaliseString(items[idx].item)) || 5;
-          result.set(key, { ...entry, packetSize, sheetName: sheet, isMisc: false });
+          result.set(key, { ...found, packetSize, sheetName: sheet, isMisc: false });
         }
       }
     }
   }
+  // FIX-1 (continued): missingItems now correctly captures any item/shade pair
+  // that has no real loft-tab entry — including those whose item has a loft tab
+  // but the specific shade was not found there.
   const missingItems: Array<{ idx: number; item: string; shade: string }> = [];
   for (let i = 0; i < items.length; i++) {
     const key = `${normaliseString(items[i].item)}|${normaliseString(items[i].shade)}`;
@@ -461,7 +470,7 @@ async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade:
         }
       }
     } catch (err) {
-      console.error("[batchGetLoftStock] misc read failed", err);
+      console.error(`[batchGetLoftStock] misc read failed`, err);
     }
   }
   return result;
@@ -989,7 +998,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
           const loftEntry = loftStockMap.get(key);
           const storeAvailable = storeInfo.stock;
-          const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
+          // FIX-3: Guard against NaN by coercing undefined fields to 0.
+          // loftEntry from a real hit has {individuals, packets, packetSize};
+          // if loftEntry is undefined (no loft stock at all), loftAvailable = 0.
+          const loftAvailable = loftEntry
+            ? (Number(loftEntry.individuals) || 0) + (Number(loftEntry.packets) || 0) * (Number(loftEntry.packetSize) || 1)
+            : 0;
           if (storeAvailable + loftAvailable < it.qty) {
             return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
           }
@@ -1118,7 +1132,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
         const loftEntry = loftStockMap.get(key);
         const storeAvailable = storeInfo.stock;
-        const loftAvailable = loftEntry ? loftEntry.individuals + loftEntry.packets * loftEntry.packetSize : 0;
+        // FIX-3: Guard against NaN by coercing undefined fields to 0.
+        // loftEntry from a real hit has {individuals, packets, packetSize};
+        // if loftEntry is undefined (no loft stock at all), loftAvailable = 0.
+        const loftAvailable = loftEntry
+          ? (Number(loftEntry.individuals) || 0) + (Number(loftEntry.packets) || 0) * (Number(loftEntry.packetSize) || 1)
+          : 0;
         if (storeAvailable + loftAvailable < it.qty) {
           return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
         }

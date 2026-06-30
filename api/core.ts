@@ -428,31 +428,37 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
 }
 
 // points configuration
-async function handleGetPointsConfig(gsapi: any, res: VercelResponse) {
-  try {
-    const response = await gsapi.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "PointsConfig!A2:C2",
+async function getPointsConfig(gsapi: any) {
+  const response = await gsapi.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "PointsConfig!A:B",
+  });
+
+  const rows = response.data.values || [];
+
+  const map = Object.fromEntries(rows);
+
+  return {
+    earnRate: Number(map.EarnRate ?? 0.005),
+    redeemRate: Number(map.RedeemRate ?? 0.5),
+    minRedeem: Number(map.MinRedeem ?? 50),
+
+    spendBonus: parseTierMap(map.SpendBonus ?? ""),
+    billBonus: parseTierMap(map.BillBonus ?? ""),
+  };
+}
+
+function parseTierMap(value: string) {
+  return value
+    .split(",")
+    .map(v => v.trim())
+    .filter(Boolean)
+    .map(entry => {
+      const [threshold, bonus] = entry.split(":");
+
+      return {
+        threshold: Number(threshold),
+        bonus: Number(bonus),
+      };
     });
-
-    const row = response.data.values?.[0];
-
-    if (!row) {
-      throw new Error("PointsConfig row missing");
-    }
-
-    const earnRate = Number(row[0]) || 0.01;
-    const redeemRate = Number(row[1]) || 1;
-    const minRedeem = Number(row[2]) || 50;
-
-    return res.status(200).json({
-      config: {
-        earnRate,
-        redeemRate,
-        minRedeem,
-      },
-    });
-  } catch (err: any) {
-    console.error("[GET_POINTS_CONFIG_ERROR]", err.message);
-    return res.status(500).json({ error: "Failed to fetch points configuration" });
-}}
+}

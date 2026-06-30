@@ -182,7 +182,7 @@ async function getPointsConfig(gsapi: any): Promise<{
     range: `${POINTS_CONFIG_SHEET}!A2:C`,
   });
   const rows = res.data.values || [];
-  let earnRate = 0.01; // default 1%
+  let earnRate = 0.01;
   const spendBonuses: Array<{ spend: number; points: number }> = [];
   const billBonuses: Array<{ bills: number; points: number }> = [];
 
@@ -520,7 +520,7 @@ async function deductLoftStock(gsapi: any, entry: any, needed: number): Promise<
       requestBody: { values: [[newIndiv]] },
     });
     return { 
-      individualsUsed, 
+      individualsUsed,
       packetsOpened: 0, 
       leftoverBalls: 0, 
       newIndiv, 

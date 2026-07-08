@@ -39,8 +39,8 @@ export default function PrintBill({
       <div style={styles.billHeader}>
         <img src="/logo.svg" alt="logo" className="logo" style={styles.logo} crossOrigin="anonymous" />
         <div style={styles.contactBlock}>
+          <div style={styles.contactLine}>Shop No: F-27, First FLoor, Al-Lulu Complex, Bhendi Bazaar, Mumbai - 400003</div>
           <div style={styles.contactLine}>Phone No: +919004452933</div>
-          <div style={styles.contactLine}>Address: First FLoor, Al-Lulu Complex, Cluster 2 Transit, F-27, Saifee Jubilee St, Ajmer, Bhendi Bazaar, Kumbharwada, Ajmer, Mumbai, Maharashtra 400003</div>
         </div>
       </div>
 

@@ -38,6 +38,10 @@ export default function PrintBill({
       {/* Logo */}
       <div style={styles.billHeader}>
         <img src="/logo.svg" alt="logo" className="logo" style={styles.logo} crossOrigin="anonymous" />
+        <div style={styles.contactBlock}>
+          <div style={styles.contactLine}>Phone No: +919004452933</div>
+          <div style={styles.contactLine}>Address: First FLoor, Al-Lulu Complex, Cluster 2 Transit, F-27, Saifee Jubilee St, Ajmer, Bhendi Bazaar, Kumbharwada, Ajmer, Mumbai, Maharashtra 400003</div>
+        </div>
       </div>
 
       {/* Customer & Bill Meta */}
@@ -129,7 +133,6 @@ export default function PrintBill({
 }
 
 // styles
-
 const styles: Record<string, React.CSSProperties> = {
   billArea: {
     background: "#ffffff",
@@ -141,6 +144,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
   billHeader: { display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 4, paddingTop: 0, },
   logo: { width: 170, height: "auto", objectFit: "contain", display: "block", margin: "0 auto" },
+  contactBlock: {
+    marginTop: 4,
+    textAlign: "center",
+    display: "flex",
+    flexDirection: "column",
+    gap: 1,
+  },
+  contactLine: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: "#334155",
+    lineHeight: 1.2,
+  },
   metaBlock: {
     border: "1px solid #e2e8f0",
     padding: "8px 10px",

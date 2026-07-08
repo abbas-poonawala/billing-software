@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
@@ -294,25 +295,29 @@ export const useBillingStore = create<BillingState>((set, get) => ({
 
 // FIX BUG-14: atomic selector to prevent torn state reads
 export function useBillTotals() {
-  return useBillingStore((state) => {
-    const { items, courierCharges, paymentMode, amountReceived, customerType } = state;
+  const items = useBillingStore((state) => state.items);
+  const courierCharges = useBillingStore((state) => state.courierCharges);
+  const paymentMode = useBillingStore((state) => state.paymentMode);
+  const amountReceived = useBillingStore((state) => state.amountReceived);
+  const customerType = useBillingStore((state) => state.customerType);
+
+  return useMemo(() => {
     const effectiveCourier = customerType === "courier" ? Number(courierCharges) || 0 : 0;
-    return computeBillTotals(
-      items,
-      effectiveCourier,
-      paymentMode,
-      Number(amountReceived) || 0
-    );
-  });
+    return computeBillTotals(items, effectiveCourier, paymentMode, Number(amountReceived) || 0);
+  }, [items, courierCharges, paymentMode, amountReceived, customerType]);
 }
 
 export function useDisplayBillMeta() {
-  return useBillingStore((state) => {
-    const { nextBillNo, billDate, billTime, editingBillNo, originalBillDate, originalBillTime } = state;
-    return {
-      displayBillNo: editingBillNo ?? nextBillNo,
-      displayBillDate: editingBillNo ? (originalBillDate || billDate) : billDate,
-      displayBillTime: editingBillNo ? (originalBillTime || billTime) : billTime,
-    };
-  });
+  const nextBillNo = useBillingStore((state) => state.nextBillNo);
+  const billDate = useBillingStore((state) => state.billDate);
+  const billTime = useBillingStore((state) => state.billTime);
+  const editingBillNo = useBillingStore((state) => state.editingBillNo);
+  const originalBillDate = useBillingStore((state) => state.originalBillDate);
+  const originalBillTime = useBillingStore((state) => state.originalBillTime);
+
+  return useMemo(() => ({
+    displayBillNo: editingBillNo ?? nextBillNo,
+    displayBillDate: editingBillNo ? (originalBillDate || billDate) : billDate,
+    displayBillTime: editingBillNo ? (originalBillTime || billTime) : billTime,
+  }), [nextBillNo, billDate, billTime, editingBillNo, originalBillDate, originalBillTime]);
 }

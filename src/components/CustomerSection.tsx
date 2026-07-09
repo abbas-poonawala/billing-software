@@ -153,6 +153,10 @@ export default function CustomerSection() {
     }
 
     if (!numericOnly) {
+      // Only customer ID clear should fully clear the customer form.
+      if (customerId.trim().length > 0) {
+        clearCustomer();
+      }
       return;
     }
 
@@ -167,7 +171,7 @@ export default function CustomerSection() {
         }
       }
     }, 400);
-  }, [setCustomerId, customer, setCustomer, selectCustomer]);
+  }, [setCustomerId, customer, customerId, clearCustomer, setCustomer, selectCustomer]);
 
   const switchType = (type: "walk-in" | "courier") => {
     setCustomerType(type);

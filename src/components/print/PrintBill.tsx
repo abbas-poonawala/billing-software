@@ -8,6 +8,7 @@ interface Props {
   items: BillItem[];
   customerName: string;
   phone: string;
+  phone2?: string;
   customer: Customer | null;
   billNo: number | null;
   billDate: string;
@@ -24,6 +25,7 @@ export default function PrintBill({
   items,
   customerName,
   phone,
+  phone2,
   customer,
   billNo,
   billDate,
@@ -52,6 +54,9 @@ export default function PrintBill({
           )}
           <div style={styles.metaRow}><span style={styles.metaLabel}>Customer:</span> {customerName || ""}</div>
           <div style={styles.metaRow}><span style={styles.metaLabel}>Phone:</span> {phone || ""}</div>
+          {phone2 && (
+            <div style={styles.metaRow}><span style={styles.metaLabel}>Phone 2:</span> {phone2}</div>
+          )}
         </div>
         <div style={styles.metaRight}>
           <div style={styles.metaRow}><span style={styles.metaLabel}>Bill No:</span> #{billNo ?? ""}</div>

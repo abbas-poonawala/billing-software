@@ -510,6 +510,7 @@ export default function App() {
         items={store.items}
         customerName={store.customerName}
         phone={store.phone}
+        phone2={store.phone2}
         customer={store.customer}
         billNo={displayBillNo}
         billDate={displayBillDate}

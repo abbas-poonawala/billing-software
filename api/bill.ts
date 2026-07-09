@@ -748,6 +748,27 @@ function createBillSummaryRow(
   ];
 }
 
+function roundMoney(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function computeCanonicalCharges(
+  items: any[],
+  courierCharges: number,
+  paymentMode: string
+): { gpayCharges: number | null; finalTotal: number } {
+  const itemSubtotal = items.reduce((sum, item) => {
+    const qty = Number(item.qty) || 0;
+    const price = Number(item.price) || 0;
+    return sum + qty * price;
+  }, 0);
+  const normalizedCourier = Number(courierCharges) || 0;
+  const isGPay = normaliseString(paymentMode) === "gpay";
+  const gpayCharges = isGPay ? roundMoney(itemSubtotal * 0.02) : null;
+  const finalTotal = roundMoney(itemSubtotal + normalizedCourier + (gpayCharges || 0));
+  return { gpayCharges, finalTotal };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const client = await auth.getClient();
@@ -808,9 +829,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           originalBillNo,
           items,
           courierCharges,
-          finalTotal,
+          finalTotal: _requestFinalTotal,
           paymentMode = "cash",
-          gpayCharges = null,
+          gpayCharges: _requestGpayCharges = null,
           customer,
           originalDate,
           originalTime,
@@ -820,6 +841,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         if (!items || !Array.isArray(items)) return res.status(400).json({ error: "items must be an array" });
         if (!customer || !customer.phone) return res.status(400).json({ error: "customer with phone is required" });
+        const canonical = computeCanonicalCharges(items, Number(courierCharges) || 0, paymentMode);
         const { date, time } = getISTDateTime();
         const timestamp = `${date} ${time}`;
         const oldBillData = await getBillByNumber(gsapi, originalBillNo);
@@ -1026,7 +1048,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         let customerId;
         try {
-          customerId = await upsertCustomer(gsapi, customer, originalDate, finalTotal);
+          customerId = await upsertCustomer(gsapi, customer, originalDate, canonical.finalTotal);
         } catch (err: any) {
           for (const { info, matchedStoreSheet, originalStock } of deductedStore) {
             await gsapi.spreadsheets.values.update({
@@ -1056,7 +1078,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           itemRows.push(createBillItemRow(originalBillNo, it, profit, total));
         }
         const summaryRow = createBillSummaryRow(originalBillNo, customerId, originalDate, originalTime,
-          paymentMode, courierCharges, gpayCharges, finalTotal, totalProfit, timestamp);
+          paymentMode, Number(courierCharges) || 0, canonical.gpayCharges, canonical.finalTotal, totalProfit, timestamp);
         await gsapi.spreadsheets.values.append({
           spreadsheetId: STORE_SHEET_ID,
           range: `${BILL_ITEMS_SHEET}!A:G`,
@@ -1073,7 +1095,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // new bill
-      const { items, finalTotal = 0, courierCharges = 0, paymentMode = "cash", gpayCharges = null, customer } = req.body;
+      const {
+        items,
+        finalTotal: _requestFinalTotal = 0,
+        courierCharges = 0,
+        paymentMode = "cash",
+        gpayCharges: _requestGpayCharges = null,
+        customer,
+      } = req.body;
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: "items must be a non-empty array" });
       }
@@ -1085,6 +1114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (customer.type === "courier" && courierCharges <= 0) {
         return res.status(400).json({ error: "courier charges required for courier orders" });
       }
+      const canonical = computeCanonicalCharges(items, Number(courierCharges) || 0, paymentMode);
       const { date, time } = getISTDateTime();
       const timestamp = `${date} ${time}`;
       const billNo = await getNextBillNo(gsapi);
@@ -1157,7 +1187,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       let customerId;
       try {
-        customerId = await upsertCustomer(gsapi, customer, date, finalTotal);
+        customerId = await upsertCustomer(gsapi, customer, date, canonical.finalTotal);
       } catch (err: any) {
         for (const { info, matchedStoreSheet, originalStock } of deductedStore) {
           await gsapi.spreadsheets.values.update({
@@ -1186,7 +1216,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         itemRows.push(createBillItemRow(billNo, it, profit, total));
       }
       const summaryRow = createBillSummaryRow(billNo, customerId, date, time, paymentMode,
-        courierCharges, gpayCharges, finalTotal, totalProfit, timestamp);
+        Number(courierCharges) || 0, canonical.gpayCharges, canonical.finalTotal, totalProfit, timestamp);
       await gsapi.spreadsheets.values.append({
         spreadsheetId: STORE_SHEET_ID,
         range: `${BILL_ITEMS_SHEET}!A:G`,

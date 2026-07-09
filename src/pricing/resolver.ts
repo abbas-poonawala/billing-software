@@ -61,6 +61,7 @@ export function computeGPayCharge(subtotal: number, paymentMode: PaymentMode): n
 
 export interface BillTotals {
   grandTotal: number; // sum of all item totals
+  subtotalBeforeCharges: number; // base amount for payment surcharge
   subtotalWithCourier: number; // + courier charges
   gpayCharge: number; // 2% if GPay
   finalTotal: number; // the number that matters
@@ -74,12 +75,13 @@ export function computeBillTotals(
   amountReceived: number
 ): BillTotals {
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
+  const subtotalBeforeCharges = grandTotal;
   const subtotalWithCourier = grandTotal + (courierCharges || 0);
-  const gpayCharge = computeGPayCharge(subtotalWithCourier, paymentMode);
+  const gpayCharge = computeGPayCharge(subtotalBeforeCharges, paymentMode);
   const finalTotal = subtotalWithCourier + gpayCharge;
   const changeAmount = amountReceived > finalTotal ? amountReceived - finalTotal : 0;
 
-  return { grandTotal, subtotalWithCourier, gpayCharge, finalTotal, changeAmount };
+  return { grandTotal, subtotalBeforeCharges, subtotalWithCourier, gpayCharge, finalTotal, changeAmount };
 }
 
 // row recalc, recomputes total and profit for a single item, always call this after mutating qty or price

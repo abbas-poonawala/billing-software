@@ -243,6 +243,7 @@ export default function App() {
       
       clearDraft();
       store.resetBill();
+      store.resetCustomer();
       refreshBillNo();
       
       // Show fallback usage toasts if any
@@ -288,6 +289,7 @@ export default function App() {
     if (store.customerType === "courier" && Number(store.courierCharges) <= 0) {
       showToast("Courier charges required", "error"); return;
     }
+    const phoneForSend = store.phone;
     store.setSavingProgress(true);
     const blob = await captureBillImage();
     let copied = false;
@@ -296,7 +298,7 @@ export default function App() {
     }
     const saved = await saveBill();
     if (!saved) { store.setSavingProgress(false); return; }
-    window.open(`https://wa.me/${phoneForWhatsApp(store.phone)}`, "_blank", "noopener,noreferrer");
+    window.open(`https://wa.me/${phoneForWhatsApp(phoneForSend)}`, "_blank", "noopener,noreferrer");
     showToast(copied ? "Bill copied. Paste in WhatsApp." : "Please attach image manually.", copied ? "success" : "info");
     store.setSavingProgress(false);
   };
@@ -512,7 +514,7 @@ export default function App() {
         billNo={displayBillNo}
         billDate={displayBillDate}
         billTime={displayBillTime}
-        courierCharges={totals.subtotalWithCourier - totals.grandTotal}
+        courierCharges={store.customerType === "courier" ? Number(store.courierCharges) || 0 : 0}
         gpayCharges={totals.gpayCharge}
         finalTotal={totals.finalTotal}
         paymentMode={store.paymentMode}

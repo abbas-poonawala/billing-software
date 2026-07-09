@@ -47,6 +47,26 @@ export default function CustomerSection() {
     setSearchResults([]);
   }, [resetCustomer]);
 
+  const clearLookupState = useCallback(() => {
+    if (nameSearchAbortRef.current) {
+      nameSearchAbortRef.current.abort();
+      nameSearchAbortRef.current = null;
+    }
+    if (idSearchRef.current) {
+      clearTimeout(idSearchRef.current);
+      idSearchRef.current = null;
+    }
+    setSearching(false);
+    setSearchResults([]);
+  }, []);
+
+  React.useEffect(() => {
+    // Full clear signal from store reset: wipe pending lookup cache too.
+    if (!customer && !customerName && !customerId && !phone && !phone2) {
+      clearLookupState();
+    }
+  }, [customer, customerName, customerId, phone, phone2, clearLookupState]);
+
   const selectCustomer = useCallback((cust: Customer) => {
     setCustomer(cust); // FIX BUG-04: setCustomer now syncs customerId to store
     setSearchResults([]);
@@ -100,14 +120,12 @@ export default function CustomerSection() {
     setPhone(val);
     const digits = val.replace(/[^0-9]/g, "");
 
-    // FIX BUG-08: empty phone only clears customer if phone was the identifier
-    if (!digits) {
-      // Only clear if no customerId is set (i.e., customer was identified by phone)
-      if (!customer?.customerId) {
-        clearCustomer();
-      }
-      return;
+    // Never reset typed customer form while editing phone.
+    if (customer && digits !== customer.phone.replace(/[^0-9]/g, "")) {
+      setCustomer(null);
     }
+
+    if (!digits) return;
 
     if (digits.length >= 10) {
       try {
@@ -117,7 +135,7 @@ export default function CustomerSection() {
         console.error("Phone lookup failed:", err);
       }
     }
-  }, [setPhone, customer, clearCustomer, selectCustomer]);
+  }, [setPhone, customer, setCustomer, selectCustomer]);
 
   // FIX BUG-08: phone2 change NEVER clears customer
   const handlePhone2Change = useCallback((val: string) => {
@@ -130,11 +148,11 @@ export default function CustomerSection() {
     const numericOnly = val.replace(/[^0-9]/g, "");
     setCustomerId(numericOnly);
 
+    if (customer && numericOnly !== customer.customerId.replace(/^LMS-/, "")) {
+      setCustomer(null);
+    }
+
     if (!numericOnly) {
-      // Only clear if nothing else identifies this customer
-      if (!customer?.customerId) {
-        clearCustomer();
-      }
       return;
     }
 
@@ -149,7 +167,7 @@ export default function CustomerSection() {
         }
       }
     }, 400);
-  }, [setCustomerId, customer, clearCustomer, selectCustomer]);
+  }, [setCustomerId, customer, setCustomer, selectCustomer]);
 
   const switchType = (type: "walk-in" | "courier") => {
     setCustomerType(type);

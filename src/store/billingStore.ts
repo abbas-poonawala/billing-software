@@ -268,8 +268,8 @@ function actions(set: any, get: any) {
         entryQty: 1,
         entryPrice: "",
         entryCost: "",
-        // FIX BUG-01: preserve customer across bill saves — cashier may be serving same customer for multiple bills
-        // Customer is cleared via resetCustomer() or manually
+        // Customer state is intentionally not touched here.
+        // Call resetCustomer() after a confirmed save when a fresh customer entry is required.
         redeemPoints: false,
         courierCharges: "",
         amountReceived: "",

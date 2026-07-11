@@ -133,6 +133,7 @@ export default function PrintBill({
       </div>
 
       <p style={styles.thankYou}>Thank you for your purchase!</p>
+      <p style={styles.norefund}>No Refund / No Exchange</p>
     </div>
   );
 }
@@ -241,6 +242,16 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8,
     paddingTop: 6,
     borderTop: "1px solid #cbd5e1",
+    fontSize: 10,
+    color: "#475569",
+    letterSpacing: "0.3px",
+    fontWeight: 700,
+  },
+  norefund: {
+    textAlign: "center",
+    marginTop: 8,
+    paddingTop: 6,
+    borderTop: "1px solid #d61410",
     fontSize: 10,
     color: "#475569",
     letterSpacing: "0.3px",

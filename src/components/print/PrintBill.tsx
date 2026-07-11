@@ -251,10 +251,9 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: "center",
     marginTop: 8,
     paddingTop: 6,
-    borderTop: "1px solid #d61410",
     fontSize: 10,
-    color: "#475569",
+    color: "#d6250d",
     letterSpacing: "0.3px",
-    fontWeight: 700,
+    fontWeight: 1000,
   },
 };

@@ -1,10 +1,11 @@
 // api/lookupBarcode.ts
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createGoogleAuth } from "./shared/googleAuth";
-import { COMMON_SKIP_TABS } from "./shared/skipTabs";
 
-const auth = createGoogleAuth();
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
 
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 
@@ -30,9 +31,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       spreadsheetId: STORE_SHEET_ID,
       fields: "sheets.properties.title",
     });
+    const skipTabs = [
+      "bill", "registry", "profit", "discount", "discounts", "customers",
+      "pointslog", "pointsconfig", "restock requests", "loft fallback log"
+    ];
     const itemTabs = (sheetMeta.data.sheets || [])
       .map((s: any) => s.properties?.title || "")
-      .filter(name => name && !COMMON_SKIP_TABS.includes(name.toLowerCase()));
+      .filter(name => name && !skipTabs.includes(name.toLowerCase()));
 
     for (const sheetName of itemTabs) {
       // Search columns A:D (barcode, shade, stock, price)

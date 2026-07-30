@@ -1,9 +1,6 @@
 // api/bill.ts
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createGoogleAuth } from "./shared/googleAuth";
-import { normalisePhone } from "./shared/phone";
-import { getSharedPointsConfig } from "./shared/points";
 
 // constants
 const BILLS_SHEET = "Bills";
@@ -45,7 +42,17 @@ const CUSTOMER_COLUMNS = {
   POINTS: 8,
 } as const;
 
-const auth = createGoogleAuth();
+const auth = new google.auth.GoogleAuth({
+  credentials: (() => {
+    try {
+      return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
+    } catch (err) {
+      console.error("[init_error] failed to parse service account:", err);
+      throw new Error("Invalid google service account credentials.");
+    }
+  })(),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
 
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
@@ -64,6 +71,16 @@ function escapeSheetName(name: string): string {
 function normaliseString(str: string | null | undefined): string {
   if (!str) return "";
   return str.toString().trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalisePhone(phone?: string | null): string | null {
+  if (phone === undefined || phone === null) return null;
+  const input = phone.toString().trim();
+  if (input === "") return null;
+  if (input.startsWith("+")) return input;
+  const digits = input.replace(/[^0-9]/g, "");
+  if (digits.length < 10) return null;
+  return "+91" + digits.slice(-10);
 }
 
 let storeSheetNamesCache: Set<string> | null = null;
@@ -160,10 +177,27 @@ async function getPointsConfig(gsapi: any): Promise<{
   spendBonuses: Array<{ spend: number; points: number }>;
   billBonuses: Array<{ bills: number; points: number }>;
 }> {
-  const config = await getSharedPointsConfig(gsapi, STORE_SHEET_ID);
-  const spendBonuses = (config.spendBonus || []).map(({ threshold, bonus }) => ({ spend: threshold, points: bonus }));
-  const billBonuses = (config.billBonus || []).map(({ threshold, bonus }) => ({ bills: threshold, points: bonus }));
-  return { earnRate: config.earnRate || 0.01, spendBonuses, billBonuses };
+  const res = await gsapi.spreadsheets.values.get({
+    spreadsheetId: STORE_SHEET_ID,
+    range: `${POINTS_CONFIG_SHEET}!A2:C`,
+  });
+  const rows = res.data.values || [];
+  let earnRate = 0.01;
+  const spendBonuses: Array<{ spend: number; points: number }> = [];
+  const billBonuses: Array<{ bills: number; points: number }> = [];
+
+  for (const row of rows) {
+    const type = normaliseString(row[0]);
+    if (type === "earn_rate") {
+      earnRate = Number(row[1]) || 0.01;
+    } else if (type === "spend_bonus") {
+      spendBonuses.push({ spend: Number(row[1]) || 0, points: Number(row[2]) || 0 });
+    } else if (type === "bill_bonus") {
+      billBonuses.push({ bills: Number(row[1]) || 0, points: Number(row[2]) || 0 });
+    }
+  }
+
+  return { earnRate, spendBonuses, billBonuses };
 }
 
 function calculatePointsEarned(

@@ -290,12 +290,12 @@ export default function CustomerSection() {
           >
             ✕ Remove
           </button>
-          {pointsConfig && pointsConfig.minRedeem != null && customer.points >= pointsConfig.minRedeem ? (
+          {pointsConfig && customer.points >= pointsConfig.minRedeem ? (
             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
               <input type="checkbox" checked={redeemPoints} onChange={e => setRedeemPoints(e.target.checked)} />
-              Redeem {customer.points} pts ({pointsConfig.redeemRate != null ? `₹${formatPrice(computePointsValue(customer.points, pointsConfig.redeemRate))} off` : "points available"})
+              Redeem {customer.points} pts (₹{formatPrice(computePointsValue(customer.points, pointsConfig.redeemRate))} off)
             </label>
-          ) : pointsConfig && pointsConfig.minRedeem != null ? (
+          ) : pointsConfig ? (
             <span style={{ fontSize: 12, color: "#aaa" }}>
               {pointsConfig.minRedeem - customer.points} more pts to redeem
             </span>

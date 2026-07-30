@@ -29,8 +29,8 @@ export type Customer = {
 
 export type PointsConfig = {
   earnRate: number;
-  redeemRate: number | null;
-  minRedeem: number | null;
+  redeemRate: number;
+  minRedeem: number;
 };
 
 // FIX BUG-04 + BUG-03: add customerId and customer to BillDraft

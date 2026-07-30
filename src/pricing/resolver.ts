@@ -117,6 +117,10 @@ export function applyAllPricingRules(items: BillItem[]): BillItem[] {
 }
 
 // points calc
+export function computePointsEarned(finalTotal: number, earnRate: number): number {
+  return Math.floor((finalTotal / 100) * earnRate);
+}
+
 export function computePointsValue(points: number, redeemRate: number): number {
   return Math.floor(points * redeemRate);
 }

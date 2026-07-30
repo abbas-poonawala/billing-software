@@ -123,6 +123,13 @@ export interface SaveBillPayload {
   originalRowIndexes?: number[];
 }
 
+export interface ShortageInfo {
+  item: string;
+  shade: string;
+  requestedQty: number;
+  availableQty: number;
+}
+
 export async function saveBill(payload: SaveBillPayload): Promise<{ billNo: number; customerId: string; fallbackUsage?: Array<{ item: string; shade: string; individualsUsed: number; packetsOpened: number }> }> {
   const isEdit = Boolean(payload.originalBillNo);
   const url = isEdit ? "/api/bill?action=edit" : "/api/bill";
@@ -132,7 +139,13 @@ export async function saveBill(payload: SaveBillPayload): Promise<{ billNo: numb
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Save failed");
+  if (!res.ok) {
+    const error = new Error(data.error || "Save failed") as Error & { shortages?: ShortageInfo[] };
+    if (Array.isArray(data.shortages)) {
+      error.shortages = data.shortages;
+    }
+    throw error;
+  }
   return data;
 }
 

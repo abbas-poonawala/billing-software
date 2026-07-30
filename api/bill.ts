@@ -1,6 +1,9 @@
 // api/bill.ts
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createGoogleAuth } from "./shared/googleAuth";
+import { normalisePhone } from "./shared/phone";
+import { getSharedPointsConfig } from "./shared/points";
 
 // constants
 const BILLS_SHEET = "Bills";
@@ -42,17 +45,7 @@ const CUSTOMER_COLUMNS = {
   POINTS: 8,
 } as const;
 
-const auth = new google.auth.GoogleAuth({
-  credentials: (() => {
-    try {
-      return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
-    } catch (err) {
-      console.error("[init_error] failed to parse service account:", err);
-      throw new Error("Invalid google service account credentials.");
-    }
-  })(),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
+const auth = createGoogleAuth();
 
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
@@ -71,16 +64,6 @@ function escapeSheetName(name: string): string {
 function normaliseString(str: string | null | undefined): string {
   if (!str) return "";
   return str.toString().trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function normalisePhone(phone?: string | null): string | null {
-  if (phone === undefined || phone === null) return null;
-  const input = phone.toString().trim();
-  if (input === "") return null;
-  if (input.startsWith("+")) return input;
-  const digits = input.replace(/[^0-9]/g, "");
-  if (digits.length < 10) return null;
-  return "+91" + digits.slice(-10);
 }
 
 let storeSheetNamesCache: Set<string> | null = null;
@@ -177,27 +160,10 @@ async function getPointsConfig(gsapi: any): Promise<{
   spendBonuses: Array<{ spend: number; points: number }>;
   billBonuses: Array<{ bills: number; points: number }>;
 }> {
-  const res = await gsapi.spreadsheets.values.get({
-    spreadsheetId: STORE_SHEET_ID,
-    range: `${POINTS_CONFIG_SHEET}!A2:C`,
-  });
-  const rows = res.data.values || [];
-  let earnRate = 0.01;
-  const spendBonuses: Array<{ spend: number; points: number }> = [];
-  const billBonuses: Array<{ bills: number; points: number }> = [];
-
-  for (const row of rows) {
-    const type = normaliseString(row[0]);
-    if (type === "earn_rate") {
-      earnRate = Number(row[1]) || 0.01;
-    } else if (type === "spend_bonus") {
-      spendBonuses.push({ spend: Number(row[1]) || 0, points: Number(row[2]) || 0 });
-    } else if (type === "bill_bonus") {
-      billBonuses.push({ bills: Number(row[1]) || 0, points: Number(row[2]) || 0 });
-    }
-  }
-
-  return { earnRate, spendBonuses, billBonuses };
+  const config = await getSharedPointsConfig(gsapi, STORE_SHEET_ID);
+  const spendBonuses = (config.spendBonus || []).map(({ threshold, bonus }) => ({ spend: threshold, points: bonus }));
+  const billBonuses = (config.billBonus || []).map(({ threshold, bonus }) => ({ bills: threshold, points: bonus }));
+  return { earnRate: config.earnRate || 0.01, spendBonuses, billBonuses };
 }
 
 function calculatePointsEarned(
@@ -986,6 +952,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const storeStockMap = await batchGetStoreStock(gsapi, items, storeSheetNames);
         const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
         const stockInfos = [];
+        const shortages = [];
         for (const it of items) {
           const key = `${normaliseString(it.item)}|${normaliseString(it.shade)}`;
           const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
@@ -994,10 +961,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const loftAvailable = loftEntry
             ? ((Number(loftEntry.individuals) || 0) + (Number(loftEntry.packets) || 0) * (Number(loftEntry.packetSize) || 0))
             : 0;
-          if (storeAvailable + loftAvailable < it.qty) {
-            return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
+          const availableQty = storeAvailable + loftAvailable;
+          if (availableQty < it.qty) {
+            shortages.push({ item: it.item, shade: it.shade, requestedQty: it.qty, availableQty });
+            continue;
           }
           stockInfos.push({ ...it, storeInfo, loftInfo: loftEntry });
+        }
+        if (shortages.length > 0) {
+          return res.status(400).json({ error: "insufficient stock", shortages });
         }
         const fallbackUsage = [];
         const deductedStore = [];
@@ -1125,6 +1097,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
       const costMap = await getCostMap(gsapi);
       const stockInfos = [];
+      const shortages = [];
       for (const it of items) {
         const key = `${normaliseString(it.item)}|${normaliseString(it.shade)}`;
         const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
@@ -1133,10 +1106,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const loftAvailable = loftEntry
           ? ((Number(loftEntry.individuals) || 0) + (Number(loftEntry.packets) || 0) * (Number(loftEntry.packetSize) || 0))
           : 0;
-        if (storeAvailable + loftAvailable < it.qty) {
-          return res.status(400).json({ error: `insufficient stock for ${it.item} ${it.shade}` });
+        const availableQty = storeAvailable + loftAvailable;
+        if (availableQty < it.qty) {
+          shortages.push({ item: it.item, shade: it.shade, requestedQty: it.qty, availableQty });
+          continue;
         }
         stockInfos.push({ ...it, storeInfo, loftInfo: loftEntry });
+      }
+      if (shortages.length > 0) {
+        return res.status(400).json({ error: "insufficient stock", shortages });
       }
       const fallbackUsage = [];
       const deductedStore = [];

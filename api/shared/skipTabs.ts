@@ -1,0 +1,15 @@
+export const COMMON_SKIP_TABS = [
+  "bill",
+  "registry",
+  "profit",
+  "discount",
+  "discounts",
+  "customers",
+  "pointslog",
+  "pointsconfig",
+  "restock requests",
+  "loft fallback log",
+  "dashboard",
+  "alternate shades",
+  "settings",
+];

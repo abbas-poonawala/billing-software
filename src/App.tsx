@@ -515,6 +515,7 @@ export default function App() {
         billNo={displayBillNo}
         billDate={displayBillDate}
         billTime={displayBillTime}
+        itemSubtotal={totals.subtotalBeforeCharges}
         courierCharges={store.customerType === "courier" ? Number(store.courierCharges) || 0 : 0}
         gpayCharges={totals.gpayCharge}
         finalTotal={totals.finalTotal}

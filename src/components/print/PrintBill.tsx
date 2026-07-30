@@ -14,6 +14,7 @@ interface Props {
   billDate: string;
   billTime: string;
   courierCharges: number;
+  itemSubtotal: number;
   gpayCharges: number;
   finalTotal: number;
   paymentMode: PaymentMode;
@@ -31,6 +32,7 @@ export default function PrintBill({
   billDate,
   billTime,
   courierCharges,
+  itemSubtotal,
   gpayCharges,
   finalTotal,
   children,
@@ -114,6 +116,12 @@ export default function PrintBill({
 
       {/* Totals */}
       <div style={styles.totalsBlock}>
+        {itemSubtotal > 0 && (
+          <div style={styles.chargeRow}>
+            <span>Items total:</span>
+            <span>₹{formatPrice(itemSubtotal)}</span>
+          </div>
+        )}
         {courierCharges > 0 && (
           <div style={styles.chargeRow}>
             <span>Forwarding Charges:</span>

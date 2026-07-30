@@ -1,11 +1,10 @@
 // api/restock.ts
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createGoogleAuth } from "./shared/googleAuth";
+import { COMMON_SKIP_TABS } from "./shared/skipTabs";
 
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
+const auth = createGoogleAuth();
 
 const STORE_SHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
@@ -156,11 +155,9 @@ async function handleStoreRestock(req: VercelRequest, res: VercelResponse) {
     });
     const allSheets = (sheetMeta.data.sheets || []).map(s => s.properties?.title || "");
 
-    const skipTabs = ["bill", "registry", "profit", "discount", "discounts", "customers", "pointslog", "pointsconfig", "restock requests", "loft fallback log", "dashboard", "alternate shades", "settings"];
-
     const itemSheets: string[] = [];
     for (const sheetName of allSheets) {
-      if (skipTabs.includes(sheetName.toLowerCase())) continue;
+      if (COMMON_SKIP_TABS.includes(sheetName.toLowerCase())) continue;
       try {
         // try to read first row to check for headers
         const headers = await gsapi.spreadsheets.values.get({

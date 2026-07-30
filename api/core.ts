@@ -1,11 +1,11 @@
 // api/core.ts
 import { google } from "googleapis";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { normalisePhone } from "./shared/phone";
+import { getSharedPointsConfig } from "./shared/points";
+import { createGoogleAuth } from "./shared/googleAuth";
 
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
+const auth = createGoogleAuth();
 
 const SPREADSHEET_ID = process.env.SHEET_ID!;
 const LOFT_SHEET_ID = process.env.LOFT_SHEET_ID!;
@@ -63,18 +63,6 @@ function findBestShadeMatch(target: string, rows: any[]): any {
   return null;
 }
 
-function normalizePhone(phone: string): string {
-  const trimmed = phone.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("+")) {
-    return trimmed;
-  }
-  const dig = trimmed.replace(/\D/g, "");
-  if (dig.length < 10) { return `+91${dig}`;
-}
-return trimmed;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -99,14 +87,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleGetPrice(gsapi, req, res);
       case "getCost":
         return await handleGetCost(gsapi, req, res);
-      case "getCustomer":
-        return await handleGetCustomer(gsapi, req, res);
       case "searchCustomersByName":
         return await handleSearchCustomersByName(gsapi, req, res);
       case "searchCustomersById":
         return await handleSearchCustomersById(gsapi, req, res);
       case "searchCustomersByPhone":
         return await handleSearchCustomersByPhone(gsapi, req, res);
+      case "getPointsConfig":
+        return await handleGetPointsConfig(gsapi, res);
       default:
         return res.status(400).json({ error: `Unknown action: ${action}` });
     }
@@ -299,42 +287,6 @@ async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse
   return res.status(200).json({ cost: 0 });
 }
 
-async function handleGetCustomer(gsapi: any, req: VercelRequest, res: VercelResponse) {
-  const { phone } = req.query;
-  if (!phone || typeof phone !== "string") {
-    return res.status(400).json({ error: "Missing phone parameter" });
-  }
-
-  // schema: A: Customer ID, B: Name, C: Phone1, D: Phone2, E: FirstVisit, F: LastVisit, G: Expenditure, H: TotalBills, I: Points
-  const response = await gsapi.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: "Customers!A2:I",
-  });
-
-  const rows = response.data.values || [];
-  const phoneNormalized = normalizePhone(phone);
-  const matchedRow = rows.find((r: any) => {
-    const rowPhone = normalizePhone(r[2]?.toString() || "");
-    return rowPhone === phoneNormalized;
-  });
-
-  if (!matchedRow) {
-    return res.status(200).json({ customer: null });
-  }
-
-  return res.status(200).json({
-    customer: {
-      customerId: matchedRow[0] || "",
-      name: matchedRow[1] || "",
-      phone: matchedRow[2] || "",
-      phone2: matchedRow[3] || "",
-      totalSpend: Number(matchedRow[6] || 0),
-      totalBills: Number(matchedRow[7] || 0),
-      points: Number(matchedRow[8] || 0),
-    },
-  });
-}
-
 async function handleSearchCustomersByName(gsapi: any, req: VercelRequest, res: VercelResponse) {
   const { name } = req.query;
   if (!name || typeof name !== "string") {
@@ -400,13 +352,11 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
   });
 
   const rows = response.data.values || [];
-  const phoneNormalized = normalizePhone(phone);
-  
-  // FIX 3c: Correct column indexes. Schema: C=Phone1 [2], D=Phone2 [3]
-  // BUG WAS: Reading from [3] and [4], should be [2] and [3]
+  const phoneNormalized = normalisePhone(phone);
+
   const matched = rows.find((r: any) => {
-    const rowPhone1 = normalizePhone(r[2]?.toString() || ""); // Phone1 in column C (index 2)
-    const rowPhone2 = r[3] ? normalizePhone(r[3]?.toString()) : null; // Phone2 in column D (index 3), only if non-empty
+    const rowPhone1 = normalisePhone(r[2]?.toString() || "");
+    const rowPhone2 = r[3] ? normalisePhone(r[3]?.toString()) : null;
     return rowPhone1 === phoneNormalized || (rowPhone2 && rowPhone2 === phoneNormalized);
   });
 
@@ -427,38 +377,13 @@ async function handleSearchCustomersByPhone(gsapi: any, req: VercelRequest, res:
   });
 }
 
-// points configuration
-async function getPointsConfig(gsapi: any) {
-  const response = await gsapi.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: "PointsConfig!A:B",
-  });
-
-  const rows = response.data.values || [];
-
-  const map = Object.fromEntries(rows);
-
-  return {
-    earnRate: Number(map.EarnRate ?? 0.005),
-    redeemRate: Number(map.RedeemRate ?? 0.5),
-    minRedeem: Number(map.MinRedeem ?? 50),
-
-    spendBonus: parseTierMap(map.SpendBonus ?? ""),
-    billBonus: parseTierMap(map.BillBonus ?? ""),
-  };
-}
-
-function parseTierMap(value: string) {
-  return value
-    .split(",")
-    .map(v => v.trim())
-    .filter(Boolean)
-    .map(entry => {
-      const [threshold, bonus] = entry.split(":");
-
-      return {
-        threshold: Number(threshold),
-        bonus: Number(bonus),
-      };
-    });
+async function handleGetPointsConfig(gsapi: any, res: VercelResponse) {
+  const config = await getSharedPointsConfig(gsapi, SPREADSHEET_ID);
+  return res.status(200).json({ config: {
+    earnRate: config.earnRate,
+    redeemRate: config.redeemRate ?? 0,
+    minRedeem: config.minRedeem ?? 0,
+    spendBonus: config.spendBonus,
+    billBonus: config.billBonus,
+  } });
 }

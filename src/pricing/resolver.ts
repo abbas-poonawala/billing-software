@@ -23,29 +23,45 @@ const DEWDROP_BULK_QTY = 6;
 // re-applies dewdrop slab pricing across the entire bill
 
 export function applyDewdropPricing(items: BillItem[]): BillItem[] {
-  const dewdropIdxs = items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => item.item.toLowerCase() === DEWDROP_ITEM && !item.priceOverridden);
+  const dewdropRows: { item: BillItem; idx: number }[] = [];
+  items.forEach((item, idx) => {
+    if (item.item.toLowerCase() === DEWDROP_ITEM && !item.priceOverridden) {
+      dewdropRows.push({ item, idx });
+    }
+  });
 
-  if (dewdropIdxs.length === 0) return items.map(recalcItem);
+  if (dewdropRows.length === 0) return items.map(recalcItem);
 
-  const totalQty = dewdropIdxs.reduce((sum, { item }) => sum + item.qty, 0);
-  const bulkSlots = Math.floor(totalQty / DEWDROP_BULK_QTY) * DEWDROP_BULK_QTY;
+  const totalQty = dewdropRows.reduce((sum, { item }) => sum + item.qty, 0);
+  const bulkQty = Math.floor(totalQty / DEWDROP_BULK_QTY) * DEWDROP_BULK_QTY;
 
-  let slotsRemaining = bulkSlots;
-  const updated = [...items];
+  let bulkRemaining = bulkQty;
+  const dewdropIdxSet = new Set(dewdropRows.map(r => r.idx));
+  const result: BillItem[] = [];
 
-  for (const { item: dewdropItem, idx } of dewdropIdxs) {
-    const price = slotsRemaining >= dewdropItem.qty ? DEWDROP_BULK_PRICE : DEWDROP_RETAIL_PRICE;
-    updated[idx] = {
-      ...dewdropItem,
-      price,
-      originalPrice: dewdropItem.originalPrice ?? dewdropItem.price,
-    };
-    slotsRemaining -= dewdropItem.qty;
-  }
+  items.forEach((item, idx) => {
+    if (!dewdropIdxSet.has(idx)) {
+      result.push(item);
+      return;
+    }
 
-  return updated.map(recalcItem);
+    const qty = item.qty;
+    const bulkUnits = Math.min(bulkRemaining, qty);
+    const retailUnits = qty - bulkUnits;
+    bulkRemaining -= bulkUnits;
+
+    const originalPrice = item.originalPrice ?? item.price;
+
+    // row fits entirely in one slab -> stays a single row, just re-priced
+    if (bulkUnits > 0) {
+      result.push({ ...item, qty: bulkUnits, price: DEWDROP_BULK_PRICE, originalPrice });
+    }
+    if (retailUnits > 0) {
+      result.push({ ...item, qty: retailUnits, price: DEWDROP_RETAIL_PRICE, originalPrice });
+    }
+  });
+
+  return result.map(recalcItem);
 }
 
 // gpay
@@ -101,10 +117,6 @@ export function applyAllPricingRules(items: BillItem[]): BillItem[] {
 }
 
 // points calc
-export function computePointsEarned(finalTotal: number, earnRate: number): number {
-  return Math.floor((finalTotal / 100) * earnRate);
-}
-
 export function computePointsValue(points: number, redeemRate: number): number {
   return Math.floor(points * redeemRate);
 }

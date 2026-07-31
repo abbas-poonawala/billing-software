@@ -115,7 +115,6 @@ export default function App() {
     window.addEventListener("focus", handle);
     return () => window.removeEventListener("focus", handle);
   }, [store.editingBillNo]);
-
   useEffect(() => {
     if (store.editingBillNo) return;
     const interval = setInterval(() => {

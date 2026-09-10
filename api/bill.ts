@@ -764,8 +764,9 @@ function computeCanonicalCharges(
   }, 0);
   const normalizedCourier = Number(courierCharges) || 0;
   const isGPay = normaliseString(paymentMode) === "gpay";
-  const gpayCharges = isGPay ? roundMoney(itemSubtotal * 0.02) : null;
-  const finalTotal = roundMoney(itemSubtotal + normalizedCourier + (gpayCharges || 0));
+  const totalBeforeGPay = itemSubtotal + normalizedCourier;
+  const gpayCharges = isGPay ? roundMoney(totalBeforeGPay * 0.02) : null;
+  const finalTotal = roundMoney(totalBeforeGPay + (gpayCharges || 0));
   return { gpayCharges, finalTotal };
 }
 

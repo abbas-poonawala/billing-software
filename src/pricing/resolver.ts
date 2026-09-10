@@ -6,7 +6,7 @@
  * Supported pricing modes:
  *  - Normal (default): price from sheet
  *  - Dewdrop slab: 6+ units → ₹110, else ₹120
- *  - GPay surcharge: +2% on final total
+ *  - GPay surcharge: +2% on item total plus courier charges
  *  - Manual override: cashier overrides price, flag kept
  */
 
@@ -93,7 +93,7 @@ export function computeBillTotals(
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
   const subtotalBeforeCharges = grandTotal;
   const subtotalWithCourier = grandTotal + (courierCharges || 0);
-  const gpayCharge = computeGPayCharge(subtotalBeforeCharges, paymentMode);
+  const gpayCharge = computeGPayCharge(subtotalWithCourier, paymentMode);
   const finalTotal = subtotalWithCourier + gpayCharge;
   const changeAmount = amountReceived > finalTotal ? amountReceived - finalTotal : 0;
 

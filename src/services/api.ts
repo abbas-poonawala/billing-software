@@ -102,7 +102,7 @@ export interface SaveBillPayload {
   items: any[];
   finalTotal: number;
   courierCharges: number;
-  gpayCharges: number | null;
+  cashDiscount: number | null;
   paymentMode: string;
   billDate: string;
   billTime: string;

@@ -214,7 +214,7 @@ export default function App() {
         items: store.items.map(i => ({ ...i, total: i.qty * i.price, profit: i.profit })),
         finalTotal: totals.finalTotal,
         courierCharges: store.customerType === "courier" ? Number(store.courierCharges) : 0,
-        gpayCharges: store.paymentMode === "GPay" ? totals.gpayCharge : null,
+        cashDiscount: store.paymentMode === "Cash" ? totals.cashDiscount : null,
         paymentMode: store.paymentMode,
         billDate: store.billDate,
         billTime: store.billTime,
@@ -518,7 +518,7 @@ export default function App() {
           billTime={displayBillTime}
           itemSubtotal={totals.subtotalBeforeCharges}
           courierCharges={store.customerType === "courier" ? Number(store.courierCharges) || 0 : 0}
-          gpayCharges={totals.gpayCharge}
+          cashDiscount={totals.cashDiscount}
           finalTotal={totals.finalTotal}
           paymentMode={store.paymentMode}
         >
@@ -644,9 +644,9 @@ export default function App() {
                 <div style={{ marginTop: 8, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
                   <span>Final Total:</span><span>₹{formatPrice(retrievedBill.finalTotal)}</span>
                 </div>
-                {(retrievedBill.gpayCharges ?? 0) > 0 && (
+                {(retrievedBill.cashDiscount ?? 0) > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#dc2626", fontSize: 12 }}>
-                    <span>GPay Charges (2%):</span><span>₹{formatPrice(retrievedBill.gpayCharges!)}</span>
+                    <span>Cash Discount (2%):</span><span>- ₹{formatPrice(retrievedBill.cashDiscount!)}</span>
                   </div>
                 )}
                 <button

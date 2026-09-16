@@ -640,7 +640,7 @@ async function getBillByNumber(gsapi: any, billNo: number): Promise<{ summary: a
       time: summaryRow[BILLS_COLUMNS.TIME],
       paymentMode: summaryRow[BILLS_COLUMNS.PAYMENT_MODE] || "cash",
       courierCharges: Number(summaryRow[BILLS_COLUMNS.COURIER_CHARGES]) || 0,
-      gpayCharges: summaryRow[BILLS_COLUMNS.GPAY_CHARGES] ? Number(summaryRow[BILLS_COLUMNS.GPAY_CHARGES]) : null,
+      cashDiscount: summaryRow[BILLS_COLUMNS.GPAY_CHARGES] ? Number(summaryRow[BILLS_COLUMNS.GPAY_CHARGES]) : null,
       finalTotal: Number(summaryRow[BILLS_COLUMNS.FINAL_TOTAL]) || 0,
       totalProfit: Number(summaryRow[BILLS_COLUMNS.TOTAL_PROFIT]) || 0,
       lastUpdated: summaryRow[BILLS_COLUMNS.LAST_UPDATED],
@@ -729,7 +729,7 @@ function createBillSummaryRow(
   time: string,
   paymentMode: string,
   courierCharges: number,
-  gpayCharges: number | null,
+  cashDiscount: number | null,
   finalTotal: number,
   totalProfit: number,
   lastUpdated: string
@@ -741,7 +741,7 @@ function createBillSummaryRow(
     time,
     paymentMode,
     courierCharges > 0 ? courierCharges : "",
-    gpayCharges !== null ? gpayCharges : "",
+    cashDiscount !== null ? cashDiscount : "",
     finalTotal,
     totalProfit,
     lastUpdated,
@@ -756,18 +756,18 @@ function computeCanonicalCharges(
   items: any[],
   courierCharges: number,
   paymentMode: string
-): { gpayCharges: number | null; finalTotal: number } {
+): { cashDiscount: number | null; finalTotal: number } {
   const itemSubtotal = items.reduce((sum, item) => {
     const qty = Number(item.qty) || 0;
     const price = Number(item.price) || 0;
     return sum + qty * price;
   }, 0);
   const normalizedCourier = Number(courierCharges) || 0;
-  const isGPay = normaliseString(paymentMode) === "gpay";
+  const isCash = normaliseString(paymentMode) === "cash";
   const totalBeforeGPay = itemSubtotal + normalizedCourier;
-  const gpayCharges = isGPay ? roundMoney(totalBeforeGPay * 0.02) : null;
-  const finalTotal = roundMoney(totalBeforeGPay + (gpayCharges || 0));
-  return { gpayCharges, finalTotal };
+  const cashDiscount = isCash ? roundMoney(totalBeforeGPay * 0.02) : null;
+  const finalTotal = roundMoney(totalBeforeGPay - (cashDiscount || 0));
+  return { cashDiscount, finalTotal };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -808,7 +808,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             time: summary.time,
             courierCharges: summary.courierCharges,
             paymentMode: summary.paymentMode,
-            gpayCharges: summary.gpayCharges,
+            cashDiscount: summary.cashDiscount,
             finalTotal: summary.finalTotal,
             lastUpdated: summary.lastUpdated,
           },
@@ -832,7 +832,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           courierCharges,
           finalTotal: _requestFinalTotal,
           paymentMode = "cash",
-          gpayCharges: _requestGpayCharges = null,
+          cashDiscount: _requestCashDiscount = null,
           customer,
           originalDate,
           originalTime,
@@ -842,7 +842,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         if (!items || !Array.isArray(items)) return res.status(400).json({ error: "items must be an array" });
         if (!customer || !customer.phone) return res.status(400).json({ error: "customer with phone is required" });
-        const canonical = computeCanonicalCharges(items, Number(courierCharges) || 0, paymentMode);
+        const effectiveCourierCharges = customer.type === "courier" ? Number(courierCharges) || 0 : 0;
+        const canonical = computeCanonicalCharges(items, effectiveCourierCharges, paymentMode);
         const { date, time } = getISTDateTime();
         const timestamp = `${date} ${time}`;
         const oldBillData = await getBillByNumber(gsapi, originalBillNo);
@@ -1085,7 +1086,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           itemRows.push(createBillItemRow(originalBillNo, it, profit, total));
         }
         const summaryRow = createBillSummaryRow(originalBillNo, customerId, originalDate, originalTime,
-          paymentMode, Number(courierCharges) || 0, canonical.gpayCharges, canonical.finalTotal, totalProfit, timestamp);
+          paymentMode, effectiveCourierCharges, canonical.cashDiscount, canonical.finalTotal, totalProfit, timestamp);
         await gsapi.spreadsheets.values.append({
           spreadsheetId: STORE_SHEET_ID,
           range: `${BILL_ITEMS_SHEET}!A:G`,
@@ -1107,7 +1108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         finalTotal: _requestFinalTotal = 0,
         courierCharges = 0,
         paymentMode = "cash",
-        gpayCharges: _requestGpayCharges = null,
+        cashDiscount: _requestCashDiscount = null,
         customer,
       } = req.body;
       if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1121,7 +1122,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (customer.type === "courier" && courierCharges <= 0) {
         return res.status(400).json({ error: "courier charges required for courier orders" });
       }
-      const canonical = computeCanonicalCharges(items, Number(courierCharges) || 0, paymentMode);
+      const effectiveCourierCharges = customer.type === "courier" ? Number(courierCharges) || 0 : 0;
+      const canonical = computeCanonicalCharges(items, effectiveCourierCharges, paymentMode);
       const { date, time } = getISTDateTime();
       const timestamp = `${date} ${time}`;
       const billNo = await getNextBillNo(gsapi);
@@ -1229,7 +1231,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         itemRows.push(createBillItemRow(billNo, it, profit, total));
       }
       const summaryRow = createBillSummaryRow(billNo, customerId, date, time, paymentMode,
-        Number(courierCharges) || 0, canonical.gpayCharges, canonical.finalTotal, totalProfit, timestamp);
+        effectiveCourierCharges, canonical.cashDiscount, canonical.finalTotal, totalProfit, timestamp);
       await gsapi.spreadsheets.values.append({
         spreadsheetId: STORE_SHEET_ID,
         range: `${BILL_ITEMS_SHEET}!A:G`,

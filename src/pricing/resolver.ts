@@ -6,7 +6,7 @@
  * Supported pricing modes:
  *  - Normal (default): price from sheet
  *  - Dewdrop slab: 6+ units → ₹110, else ₹120
- *  - GPay surcharge: +2% on item total plus courier charges
+ *  - Cash discount: 2% off the item total plus courier charges
  *  - Manual override: cashier overrides price, flag kept
  */
 
@@ -64,12 +64,12 @@ export function applyDewdropPricing(items: BillItem[]): BillItem[] {
   return result.map(recalcItem);
 }
 
-// gpay
+// cash discount
 
 const GPAY_RATE = 0.02;
 
-export function computeGPayCharge(subtotal: number, paymentMode: PaymentMode): number {
-  if (paymentMode !== "GPay") return 0;
+export function computeCashDiscount(subtotal: number, paymentMode: PaymentMode): number {
+  if (paymentMode !== "Cash") return 0;
   return Math.round(subtotal * GPAY_RATE * 100) / 100;
 }
 
@@ -77,9 +77,9 @@ export function computeGPayCharge(subtotal: number, paymentMode: PaymentMode): n
 
 export interface BillTotals {
   grandTotal: number; // sum of all item totals
-  subtotalBeforeCharges: number; // base amount for payment surcharge
+  subtotalBeforeCharges: number; // item total before courier charges
   subtotalWithCourier: number; // + courier charges
-  gpayCharge: number; // 2% if GPay
+  cashDiscount: number; // 2% for Cash
   finalTotal: number; // the number that matters
   changeAmount: number;  // cash back to customer
 }
@@ -93,11 +93,11 @@ export function computeBillTotals(
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
   const subtotalBeforeCharges = grandTotal;
   const subtotalWithCourier = grandTotal + (courierCharges || 0);
-  const gpayCharge = computeGPayCharge(subtotalWithCourier, paymentMode);
-  const finalTotal = subtotalWithCourier + gpayCharge;
+  const cashDiscount = computeCashDiscount(subtotalWithCourier, paymentMode);
+  const finalTotal = subtotalWithCourier - cashDiscount;
   const changeAmount = amountReceived > finalTotal ? amountReceived - finalTotal : 0;
 
-  return { grandTotal, subtotalBeforeCharges, subtotalWithCourier, gpayCharge, finalTotal, changeAmount };
+  return { grandTotal, subtotalBeforeCharges, subtotalWithCourier, cashDiscount, finalTotal, changeAmount };
 }
 
 // row recalc, recomputes total and profit for a single item, always call this after mutating qty or price

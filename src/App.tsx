@@ -350,15 +350,11 @@ export default function App() {
 
   // restock
   const generateStoreRestock = async () => {
-    const input = window.prompt("Enter item name (or 'all'):");
-    if (!input?.trim()) return;
     setRestockLoading(true);
     try {
-      const data = await fetchStoreRestock(input.trim());
+      const data = await fetchStoreRestock();
       if (!data.message) { showToast(data.summary || "No restock needed", "info"); return; }
-      if (window.confirm(`Restock Summary:\n${data.summary}\n\nOpen WhatsApp?`) && data.waLink) {
-        window.open(data.waLink, "_blank", "noopener,noreferrer");
-      }
+      if (data.waLink) window.open(data.waLink, "_blank", "noopener,noreferrer");
     } catch (err: any) {
       showToast(err.message || "Unknown error", "error");
     } finally {
@@ -570,7 +566,7 @@ export default function App() {
             </button>
           )}
           <button style={{ ...styles.actionBtn, background: "#8b5cf6" }} onClick={() => setShowBillRetrieval(v => !v)}>Retrieve Bill</button>
-          <button style={{ ...styles.actionBtn, background: "#22e6ae" }} onClick={generateStoreRestock} disabled={restockLoading}>Restock List</button>
+          <button style={{ ...styles.actionBtn, background: "#22e6ae" }} onClick={generateStoreRestock} disabled={restockLoading}>{restockLoading ? "Generating..." : "Generate Restock List"}</button>
           <button style={{ ...styles.actionBtn, background: "#25D366" }} onClick={sendWhatsApp} disabled={!isPhoneValid || store.items.length === 0}>Send Bill via WhatsApp</button>
           <button style={styles.actionBtn} onClick={() => window.print()}>Print Bill</button>
           <button

@@ -1,16 +1,31 @@
 import type { Customer, PointsConfig, RetrievedBill } from "../types";
 
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+function dedupeRequest<T>(key: string, request: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const pending = request().finally(() => inFlightRequests.delete(key));
+  inFlightRequests.set(key, pending);
+  return pending;
+}
+
 // inventory
 export async function fetchItems(): Promise<string[]> {
-  const res = await fetch("/api/core?action=getItems");
-  const data = await res.json();
-  return data.items || [];
+  return dedupeRequest("items", async () => {
+    const res = await fetch("/api/core?action=getItems");
+    const data = await res.json();
+    return data.items || [];
+  });
 }
 
 export async function fetchShades(item: string): Promise<string[]> {
-  const res = await fetch(`/api/core?action=getShades&item=${encodeURIComponent(item)}`);
-  const data = await res.json();
-  return data.shades || [];
+  return dedupeRequest(`shades:${item.toLowerCase()}`, async () => {
+    const res = await fetch(`/api/core?action=getShades&item=${encodeURIComponent(item)}`);
+    const data = await res.json();
+    return data.shades || [];
+  });
 }
 
 export interface PriceResult {
@@ -20,29 +35,35 @@ export interface PriceResult {
 }
 
 export async function fetchPrice(item: string, shade: string): Promise<PriceResult> {
-  const res = await fetch(
-    `/api/core?action=getPrice&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`
-  );
-  const data = await res.json();
-  return { price: data.price || 0, qty: data.qty ?? -1, method: data.method };
+  return dedupeRequest(`price:${item.toLowerCase()}:${shade.toLowerCase()}`, async () => {
+    const res = await fetch(
+      `/api/core?action=getPrice&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`
+    );
+    const data = await res.json();
+    return { price: data.price || 0, qty: data.qty ?? -1, method: data.method };
+  });
 }
 
 export async function fetchCost(item: string, shade: string): Promise<number> {
-  const res = await fetch(
-    `/api/core?action=getCost&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`
-  );
-  const data = await res.json();
-  return data.cost || 0;
+  return dedupeRequest(`cost:${item.toLowerCase()}:${shade.toLowerCase()}`, async () => {
+    const res = await fetch(
+      `/api/core?action=getCost&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`
+    );
+    const data = await res.json();
+    return data.cost || 0;
+  });
 }
 
 export async function fetchPointsConfig(): Promise<PointsConfig | null> {
-  try {
-    const res = await fetch("/api/core?action=getPointsConfig");
-    const data = await res.json();
-    return data.config || null;
-  } catch {
-    return null;
-  }
+  return dedupeRequest("points-config", async () => {
+    try {
+      const res = await fetch("/api/core?action=getPointsConfig");
+      const data = await res.json();
+      return data.config || null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 // customer search
@@ -156,8 +177,8 @@ export interface RestockResult {
   waLink?: string;
 }
 
-export async function fetchStoreRestock(item: string): Promise<RestockResult> {
-  const res = await fetch(`/api/restock?type=store&item=${encodeURIComponent(item)}`);
+export async function fetchStoreRestock(): Promise<RestockResult> {
+  const res = await fetch("/api/restock?type=store");
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Restock failed");
   return data;

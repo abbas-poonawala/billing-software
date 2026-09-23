@@ -99,6 +99,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleGetPrice(gsapi, req, res);
       case "getCost":
         return await handleGetCost(gsapi, req, res);
+      case "getPointsConfig":
+        return res.status(200).json({ config: await getPointsConfig(gsapi) });
       case "getCustomer":
         return await handleGetCustomer(gsapi, req, res);
       case "searchCustomersByName":

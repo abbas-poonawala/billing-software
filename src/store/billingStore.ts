@@ -146,8 +146,40 @@ function actions(set: any, get: any) {
     updateItems: (items: BillItem[]) => set({ items: applyAllPricingRules(items) }),
 
     addItem: (item: BillItem) => {
-      const items = applyAllPricingRules([...get().items, item]);
-      set({ items });
+      const existingItems = get().items;
+      const itemKey = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
+      const matchingItems = existingItems.filter((existing: BillItem) =>
+        `${existing.item.trim().toLowerCase()}|${existing.shade.trim().toLowerCase()}` === itemKey
+      );
+
+      if (matchingItems.length === 0) {
+        set({ items: applyAllPricingRules([...existingItems, item]) });
+        return;
+      }
+
+      const mergedItem = {
+        ...matchingItems[0],
+        qty: matchingItems.reduce(
+          (total: number, existing: BillItem) => total + existing.qty,
+          item.qty
+        ),
+      };
+      const mergedItems: BillItem[] = [];
+      let merged = false;
+
+      for (const existing of existingItems) {
+        const existingKey = `${existing.item.trim().toLowerCase()}|${existing.shade.trim().toLowerCase()}`;
+        if (existingKey === itemKey) {
+          if (!merged) {
+            mergedItems.push(mergedItem);
+            merged = true;
+          }
+        } else {
+          mergedItems.push(existing);
+        }
+      }
+
+      set({ items: applyAllPricingRules(mergedItems) });
     },
 
     removeItem: (idx: number) => {

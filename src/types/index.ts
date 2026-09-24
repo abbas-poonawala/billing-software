@@ -4,6 +4,7 @@ export type PaymentMode = "Cash" | "GPay";
 export type CustomerType = "walk-in" | "courier";
 
 export type BillItem = {
+  id?: string;
   item: string;
   shade: string;
   qty: number;

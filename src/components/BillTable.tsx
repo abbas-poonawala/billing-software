@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useBillingStore } from "../store/billingStore";
 import EditableCell from "./EditableCell";
 import SearchDropdown from "./SearchDropdown";
@@ -23,27 +23,31 @@ export default function BillTable({ shadeCache, allItems }: Props) {
   } = useBillingStore();
 
   // shade editing state
-  const [editingShadeRow, setEditingShadeRow] = useState<number | null>(null);
+  const [editingShadeRow, setEditingShadeRow] = useState<string | null>(null);
   const [editingShadeValue, setEditingShadeValue] = useState("");
   const [shadeOptions, setShadeOptions] = useState<string[]>([]);
   const [validating, setValidating] = useState(false);
+  const shadeEditVersion = useRef(0);
 
-  const startShadeEdit = async (idx: number, currentShade: string) => {
-    setEditingShadeRow(idx);
+  const startShadeEdit = async (itemId: string, itemName: string, currentShade: string) => {
+    const version = ++shadeEditVersion.current;
+    setEditingShadeRow(itemId);
     setEditingShadeValue(currentShade);
-    const itemName = items[idx].item;
     let opts = shadeCache.current[itemName] || [];
     if (!opts.length) {
       opts = await fetchShades(itemName);
       shadeCache.current[itemName] = opts;
     }
-    setShadeOptions(opts);
+    if (version === shadeEditVersion.current) setShadeOptions(opts);
   };
 
-  const saveShadeEdit = async (idx: number) => {
-    const newShade = editingShadeValue.trim();
+  const saveShadeEdit = async (itemId: string, selectedShade = editingShadeValue) => {
+    const version = shadeEditVersion.current;
+    const currentItem = useBillingStore.getState().items.find(item => item.id === itemId);
+    if (!currentItem) return;
+    const newShade = selectedShade.trim();
     if (!newShade) { showToast("Shade cannot be empty", "error"); return; }
-    const itemName = items[idx].item;
+    const itemName = currentItem.item;
 
     const matched = shadeOptions.find(s => s.toLowerCase() === newShade.toLowerCase());
     if (!matched) {
@@ -58,7 +62,10 @@ export default function BillTable({ shadeCache, allItems }: Props) {
         fetchPrice(itemName, matched),
         fetchCost(itemName, matched),
       ]);
-      updateItemShade(idx, matched, price || items[idx].price, cost || items[idx].cost);
+      if (version !== shadeEditVersion.current) return;
+      const latestItem = useBillingStore.getState().items.find(item => item.id === itemId);
+      if (!latestItem) return;
+      updateItemShade(itemId, matched, price || latestItem.price, cost || latestItem.cost);
       setEditingShadeRow(null);
     } catch {
       showToast("Could not validate shade.", "error");
@@ -79,9 +86,11 @@ export default function BillTable({ shadeCache, allItems }: Props) {
 
   return (
     <>
-      {items.map((item, idx) => (
+      {items.map((item, idx) => {
+        const itemId = item.id || `legacy-${idx}`;
+        return (
         <tr
-          key={idx}
+          key={itemId}
           style={{
             backgroundColor: selectedRow === idx
               ? "#f0f4f8"
@@ -101,11 +110,11 @@ export default function BillTable({ shadeCache, allItems }: Props) {
 
           {/* Shade */}
           <td style={td}>
-            {editingShadeRow === idx ? (
+            {editingShadeRow === itemId ? (
               <SearchDropdown
                 value={editingShadeValue}
                 onChange={setEditingShadeValue}
-                onSelect={val => { setEditingShadeValue(val); saveShadeEdit(idx); }}
+                onSelect={val => { setEditingShadeValue(val); saveShadeEdit(itemId, val); }}
                 options={shadeOptions.filter(s =>
                   !editingShadeValue.trim() || s.toLowerCase().includes(editingShadeValue.toLowerCase())
                 )}
@@ -113,7 +122,7 @@ export default function BillTable({ shadeCache, allItems }: Props) {
                 disabled={validating}
                 autoFocus={true}
                 onKeyDownExtra={e => {
-                  if (e.key === "Escape") { e.preventDefault(); setEditingShadeRow(null); }
+                  if (e.key === "Escape") { e.preventDefault(); shadeEditVersion.current += 1; setEditingShadeRow(null); }
                 }}
               />
             ) : (
@@ -121,7 +130,7 @@ export default function BillTable({ shadeCache, allItems }: Props) {
                 <span style={{ flex: 1, wordBreak: "break-word" }}>{item.shade}</span>
                 <button
                   className="no-print"
-                  onClick={e => { e.stopPropagation(); startShadeEdit(idx, item.shade); }}
+                  onClick={e => { e.stopPropagation(); startShadeEdit(itemId, item.item, item.shade); }}
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: 4, color: "#94a3b8" }}
                   title="Edit shade"
                 >✏️</button>
@@ -173,7 +182,8 @@ export default function BillTable({ shadeCache, allItems }: Props) {
             >✕</button>
           </td>
         </tr>
-      ))}
+        );
+      })}
     </>
   );
 }

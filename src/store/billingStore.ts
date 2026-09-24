@@ -55,7 +55,7 @@ interface BillingState {
   removeItem: (idx: number) => void;
   updateItemQty: (idx: number, qty: number) => void;
   updateItemPrice: (idx: number, price: number) => void;
-  updateItemShade: (idx: number, shade: string, price: number, cost: number) => void;
+  updateItemShade: (id: string, shade: string, price: number, cost: number) => void;
   undoDelete: () => void;
 
   setEntryItem: (v: string) => void;
@@ -121,7 +121,7 @@ const INITIAL_BILL_STATE = {
   entryQty: 1,
   entryPrice: "",
   entryCost: "",
-  paymentMode: "Cash" as PaymentMode,
+  paymentMode: "GPay" as PaymentMode,
   courierCharges: "",
   amountReceived: "",
   nextBillNo: null as number | null,
@@ -140,20 +140,31 @@ const INITIAL_BILL_STATE = {
   pointsConfig: null as PointsConfig | null,
 };
 
+let nextItemId = 0;
+
+function createItemId(): string {
+  nextItemId += 1;
+  return `bill-item-${Date.now()}-${nextItemId}`;
+}
+
+function ensureItemIds(items: BillItem[]): BillItem[] {
+  return items.map(item => item.id ? item : { ...item, id: createItemId() });
+}
+
 function actions(set: any, get: any) {
   return {
-    setItems: (items: BillItem[]) => set({ items }),
-    updateItems: (items: BillItem[]) => set({ items: applyAllPricingRules(items) }),
+    setItems: (items: BillItem[]) => set({ items: ensureItemIds(items) }),
+    updateItems: (items: BillItem[]) => set({ items: applyAllPricingRules(ensureItemIds(items)) }),
 
     addItem: (item: BillItem) => {
-      const existingItems = get().items;
+      const existingItems = ensureItemIds(get().items);
       const itemKey = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
       const matchingItems = existingItems.filter((existing: BillItem) =>
         `${existing.item.trim().toLowerCase()}|${existing.shade.trim().toLowerCase()}` === itemKey
       );
 
       if (matchingItems.length === 0) {
-        set({ items: applyAllPricingRules([...existingItems, item]) });
+        set({ items: applyAllPricingRules([...ensureItemIds(existingItems), { ...item, id: item.id || createItemId() }]) });
         return;
       }
 
@@ -225,9 +236,9 @@ function actions(set: any, get: any) {
       set({ items });
     },
 
-    updateItemShade: (idx: number, shade: string, price: number, cost: number) => {
-      const items = get().items.map((it: BillItem, i: number) => {
-        if (i !== idx) return it;
+    updateItemShade: (id: string, shade: string, price: number, cost: number) => {
+      const items = get().items.map((it: BillItem) => {
+        if (it.id !== id) return it;
         const total = it.qty * price;
         const profit = total - cost * it.qty;
         return { ...it, shade, price, cost, total, profit, priceOverridden: false };

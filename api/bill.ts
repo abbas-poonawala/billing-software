@@ -73,6 +73,24 @@ function normaliseString(str: string | null | undefined): string {
   return str.toString().trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function stockKey(item: string, shade: string): string {
+  return `${normaliseString(item)}|${normaliseString(shade)}`;
+}
+
+function consolidateStockRequirements(items: any[]): any[] {
+  const consolidated = new Map<string, any>();
+  for (const item of items) {
+    const key = stockKey(item.item, item.shade);
+    const existing = consolidated.get(key);
+    if (existing) {
+      existing.qty += Number(item.qty) || 0;
+    } else {
+      consolidated.set(key, { ...item, qty: Number(item.qty) || 0 });
+    }
+  }
+  return [...consolidated.values()];
+}
+
 function normalisePhone(phone?: string | null): string | null {
   if (phone === undefined || phone === null) return null;
   const input = phone.toString().trim();
@@ -378,10 +396,10 @@ async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade:
           }
         }
         for (const { idx, shade } of itemsBySheet.get(sheet)!) {
-          const key = `${normaliseString(items[idx].item)}|${normaliseString(shade)}`;
+          const key = stockKey(items[idx].item, shade);
           const found = shadeMap.get(normaliseString(shade));
           if (found) {
-            const packetSize = packetSizeMap.get(normaliseString(items[idx].item)) || 5;
+            const packetSize = packetSizeMap.get(normaliseString(items[idx].item)) || 0;
             result.set(key, { ...found, packetSize, sheetName: sheet, isMisc: false });
           }
         }
@@ -393,7 +411,7 @@ async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade:
   
   const missingItems: Array<{ idx: number; item: string; shade: string }> = [];
   for (let i = 0; i < items.length; i++) {
-    const key = `${normaliseString(items[i].item)}|${normaliseString(items[i].shade)}`;
+    const key = stockKey(items[i].item, items[i].shade);
     if (!result.has(key)) missingItems.push({ idx: i, item: items[i].item, shade: items[i].shade });
   }
   
@@ -413,7 +431,7 @@ async function batchGetLoftStock(gsapi: any, items: Array<{ item: string; shade:
           if (miscItem === targetItem && miscShade === targetShade) {
             const individuals = Number(miscRows[r][4]) || 0;
             const packets = Number(miscRows[r][5]) || 0;
-            const packetSize = packetSizeMap.get(targetItem) || 5;
+            const packetSize = packetSizeMap.get(targetItem) || 0;
             result.set(`${normaliseString(mi.item)}|${targetShade}`, { 
               individuals, 
               packets, 
@@ -442,7 +460,8 @@ async function preloadPacketSizeMap(gsapi: any): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   for (const r of rows) {
     const keyword = normaliseString(r[0]);
-    if (keyword) map.set(keyword, Number(r[1]) || 5);
+    const packetSize = Number(r[1]);
+    if (keyword && Number.isFinite(packetSize) && packetSize > 0) map.set(keyword, packetSize);
   }
   return map;
 }
@@ -491,7 +510,7 @@ async function deductLoftStock(gsapi: any, entry: any, needed: number): Promise<
     packetsOpened = Math.min(needPackets, packets);
     const ballsFromPackets = packetsOpened * packetSize;
     const usedFromPackets = Math.min(remaining, ballsFromPackets);
-    leftoverBalls = ballsFromPackets - usedFromPackets;
+    leftoverBalls = Math.max(0, ballsFromPackets - usedFromPackets);
     newIndiv = leftoverBalls;
     const newPackets = packets - packetsOpened;
     remaining -= usedFromPackets;
@@ -502,6 +521,9 @@ async function deductLoftStock(gsapi: any, entry: any, needed: number): Promise<
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[newIndiv, newPackets]] },
     });
+    if (remaining > 0) {
+      throw new Error("Loft stock is insufficient after packet deduction");
+    }
     return { 
       individualsUsed, 
       packetsOpened, 
@@ -519,6 +541,9 @@ async function deductLoftStock(gsapi: any, entry: any, needed: number): Promise<
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[newIndiv]] },
     });
+    if (remaining > 0) {
+      throw new Error("Loft stock is insufficient");
+    }
     return { 
       individualsUsed,
       packetsOpened: 0, 
@@ -849,9 +874,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const oldBillData = await getBillByNumber(gsapi, originalBillNo);
         if (!oldBillData) return res.status(404).json({ error: "original bill not found" });
         const oldItems = oldBillData.items;
+        const oldStockItems = consolidateStockRequirements(oldItems);
         const oldSummary = oldBillData.summary;
         const fallbackLog = await getLoftFallbackLogForBill(gsapi, originalBillNo);
-        for (const item of oldItems) {
+        for (const item of oldStockItems) {
           const itemName = item.item;
           const shadeName = item.shade;
           const qty = item.qty;
@@ -883,16 +909,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               });
             }
           }
-          const logEntry = fallbackLog.find(
-            (log: any) => normaliseString(log[2]) === normaliseString(itemName) &&
-              normaliseString(log[3]) === normaliseString(shadeName)
+          const logEntries = fallbackLog.filter(
+            (log: any) => stockKey(log[2], log[3]) === stockKey(itemName, shadeName)
           );
           const loftSheetNames = await getLoftSheetNames(gsapi);
           const matchedLoftSheet = findMatchingSheetName(loftSheetNames, itemName);
-          if (logEntry) {
-            const individualsUsed = Number(logEntry[5]) || 0;
-            const packetsOpened = Number(logEntry[6]) || 0;
-            const leftoverBalls = Number(logEntry[7]) || 0;
+          if (logEntries.length > 0) {
+            const individualsUsed = logEntries.reduce((sum, log) => sum + (Number(log[5]) || 0), 0);
+            const packetsOpened = logEntries.reduce((sum, log) => sum + (Number(log[6]) || 0), 0);
+            const leftoverBalls = logEntries.reduce((sum, log) => sum + (Number(log[7]) || 0), 0);
             if (matchedLoftSheet) {
               const loftRes = await gsapi.spreadsheets.values.get({
                 spreadsheetId: LOFT_SHEET_ID,
@@ -989,8 +1014,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
         const stockInfos = [];
         const shortages = [];
-        for (const it of items) {
-          const key = `${normaliseString(it.item)}|${normaliseString(it.shade)}`;
+        const stockItems = consolidateStockRequirements(items);
+        for (const it of stockItems) {
+          const key = stockKey(it.item, it.shade);
           const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
           const loftEntry = loftStockMap.get(key);
           const storeAvailable = storeInfo.stock;
@@ -1133,10 +1159,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const storeStockMap = await batchGetStoreStock(gsapi, items, storeSheetNames);
       const loftStockMap = await batchGetLoftStock(gsapi, items, loftSheetNames, packetSizeMap);
       const costMap = await getCostMap(gsapi);
-      const stockInfos = [];
+        const stockInfos = [];
       const shortages = [];
-      for (const it of items) {
-        const key = `${normaliseString(it.item)}|${normaliseString(it.shade)}`;
+      const stockItems = consolidateStockRequirements(items);
+      for (const it of stockItems) {
+        const key = stockKey(it.item, it.shade);
         const storeInfo = storeStockMap.get(key) || { stock: 0, rowIndex: -1 };
         const loftEntry = loftStockMap.get(key);
         const storeAvailable = storeInfo.stock;

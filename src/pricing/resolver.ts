@@ -5,63 +5,71 @@
  *
  * Supported pricing modes:
  *  - Normal (default): price from sheet
- *  - Dewdrop slab: 6+ units → ₹110, else ₹120
+ *  - Registry packet slab: packet size and prices come from Registry
  *  - Cash discount: 2% off the item total plus courier charges
  *  - Manual override: cashier overrides price, flag kept
  */
 
 import type { BillItem, PaymentMode } from "../types";
 
-// dewdrop slab pricing
+function priceForMode(item: BillItem, paymentMode: PaymentMode, packet: boolean): number {
+  const configuredPrice = packet
+    ? paymentMode === "Cash" ? item.packetCashPrice : item.packetGPayPrice
+    : paymentMode === "Cash" ? item.individualCashPrice : item.individualGPayPrice;
+  return configuredPrice && configuredPrice > 0 ? configuredPrice : item.price;
+}
 
-const DEWDROP_ITEM = "dewdrop";
-const DEWDROP_BULK_PRICE = 110;
-const DEWDROP_RETAIL_PRICE = 120;
-const DEWDROP_BULK_QTY = 6;
+export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): BillItem[] {
+      const result: BillItem[] = [];
+      const groups = new Map<string, number[]>();
 
+      items.forEach((item, index) => {
+        if (item.priceOverridden) return;
+        const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
+        groups.set(key, [...(groups.get(key) || []), index]);
+      });
 
-// re-applies dewdrop slab pricing across the entire bill
+      const processedGroups = new Set<string>();
+      items.forEach((originalItem, index) => {
+        const key = `${originalItem.item.trim().toLowerCase()}|${originalItem.shade.trim().toLowerCase()}`;
+        const indexes = groups.get(key);
+        if (indexes && processedGroups.has(key)) return;
+        if (!indexes || originalItem.priceOverridden) {
+          result.push(originalItem);
+          return;
+        }
+        processedGroups.add(key);
 
-export function applyDewdropPricing(items: BillItem[]): BillItem[] {
-  const dewdropRows: { item: BillItem; idx: number }[] = [];
-  items.forEach((item, idx) => {
-    if (item.item.toLowerCase() === DEWDROP_ITEM && !item.priceOverridden) {
-      dewdropRows.push({ item, idx });
-    }
-  });
+        const packetSize = originalItem.packetSize || 0;
+        if (packetSize <= 0) {
+          for (const itemIndex of indexes) {
+            const item = items[itemIndex];
+            result.push(recalcItem({ ...item, price: priceForMode(item, paymentMode, false) }));
+          }
+          return;
+        }
+        const totalQty = packetSize > 0
+          ? indexes.reduce((sum, itemIndex) => sum + Math.max(0, items[itemIndex].qty), 0)
+          : 0;
+        let packetRemaining = Math.floor(totalQty / packetSize) * packetSize;
 
-  if (dewdropRows.length === 0) return items.map(recalcItem);
+        for (const itemIndex of indexes) {
+          const item = items[itemIndex];
+          const packetQty = Math.min(packetRemaining, item.qty);
+          packetRemaining -= packetQty;
+          const individualQty = item.qty - packetQty;
+          const packetPrice = priceForMode(item, paymentMode, true);
+          const individualPrice = priceForMode(item, paymentMode, false);
+          if (packetQty > 0) {
+            result.push(recalcItem({ ...item, id: item.id ? `${item.id}-packet` : undefined, qty: packetQty, price: packetPrice }));
+          }
+          if (individualQty > 0) {
+            result.push(recalcItem({ ...item, qty: individualQty, price: individualPrice }));
+          }
+        }
+      });
 
-  const totalQty = dewdropRows.reduce((sum, { item }) => sum + item.qty, 0);
-  const bulkQty = Math.floor(totalQty / DEWDROP_BULK_QTY) * DEWDROP_BULK_QTY;
-
-  let bulkRemaining = bulkQty;
-  const dewdropIdxSet = new Set(dewdropRows.map(r => r.idx));
-  const result: BillItem[] = [];
-
-  items.forEach((item, idx) => {
-    if (!dewdropIdxSet.has(idx)) {
-      result.push(item);
-      return;
-    }
-
-    const qty = item.qty;
-    const bulkUnits = Math.min(bulkRemaining, qty);
-    const retailUnits = qty - bulkUnits;
-    bulkRemaining -= bulkUnits;
-
-    const originalPrice = item.originalPrice ?? item.price;
-
-    // row fits entirely in one slab -> stays a single row, just re-priced
-    if (bulkUnits > 0) {
-      result.push({ ...item, qty: bulkUnits, price: DEWDROP_BULK_PRICE, originalPrice });
-    }
-    if (retailUnits > 0) {
-      result.push({ ...item, qty: retailUnits, price: DEWDROP_RETAIL_PRICE, originalPrice });
-    }
-  });
-
-  return result.map(recalcItem);
+  return result;
 }
 
 // cash discount
@@ -112,8 +120,8 @@ export function recalcItem(item: BillItem): BillItem {
 }
 
 
-export function applyAllPricingRules(items: BillItem[]): BillItem[] {
-  return applyDewdropPricing(items);
+export function applyAllPricingRules(items: BillItem[], paymentMode: PaymentMode = "GPay"): BillItem[] {
+  return applyBulkPricing(items, paymentMode);
 }
 
 // points calc

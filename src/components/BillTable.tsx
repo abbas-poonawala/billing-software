@@ -58,14 +58,20 @@ export default function BillTable({ shadeCache, allItems }: Props) {
 
     setValidating(true);
     try {
-      const [{ price }, cost] = await Promise.all([
-        fetchPrice(itemName, matched),
+      const [pricing, cost] = await Promise.all([
+        fetchPrice(itemName, matched, useBillingStore.getState().paymentMode),
         fetchCost(itemName, matched),
       ]);
       if (version !== shadeEditVersion.current) return;
       const latestItem = useBillingStore.getState().items.find(item => item.id === itemId);
       if (!latestItem) return;
-      updateItemShade(itemId, matched, price || latestItem.price, cost || latestItem.cost);
+      updateItemShade(itemId, matched, pricing.price || latestItem.price, cost || latestItem.cost, {
+        individualCashPrice: pricing.individualCashPrice,
+        individualGPayPrice: pricing.individualGPayPrice,
+        packetCashPrice: pricing.packetCashPrice,
+        packetGPayPrice: pricing.packetGPayPrice,
+        packetSize: pricing.packetSize,
+      });
       setEditingShadeRow(null);
     } catch {
       showToast("Could not validate shade.", "error");

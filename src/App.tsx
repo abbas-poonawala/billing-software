@@ -16,6 +16,7 @@ import {
   fetchBill,
   saveBill as apiSaveBill,
   lookupBarcode,
+  fetchPrice,
   fetchStoreRestock,
   type ShortageInfo,
 } from "./services/api";
@@ -139,7 +140,7 @@ export default function App() {
 
   // add item
   const addItem = async (fromBarcode = false) => {
-    const { entryItem, entryShade, entryQty, entryPrice, entryCost } = store;
+    const { entryItem, entryShade, entryQty, entryPrice, entryCost, paymentMode } = store;
     if (!entryItem?.trim()) { showToast("Enter item name", "error"); return; }
     if (entryQty <= 0) { showToast("Quantity must be > 0", "error"); return; }
     const priceNum = Number(entryPrice);
@@ -160,6 +161,7 @@ export default function App() {
     const finalShade = entryShade || (isMisc ? "Misc" : "");
     if (itemExists && !isMisc && !finalShade) { showToast("Select a shade", "error"); return; }
 
+    const pricing = !isMisc ? await fetchPrice(entryItem, finalShade, paymentMode) : null;
     const newItem: BillItem = recalcItem({
       item: entryItem,
       shade: finalShade,
@@ -171,6 +173,11 @@ export default function App() {
       total: 0,
       profit: 0,
       priceOverridden: false,
+      individualCashPrice: pricing?.individualCashPrice,
+      individualGPayPrice: pricing?.individualGPayPrice,
+      packetCashPrice: pricing?.packetCashPrice,
+      packetGPayPrice: pricing?.packetGPayPrice,
+      packetSize: pricing?.packetSize,
     });
 
     store.addItem(newItem);
@@ -185,7 +192,7 @@ export default function App() {
     if (!code) return;
     setBarcodeLoading(true);
     try {
-      const data = await lookupBarcode(code);
+      const data = await lookupBarcode(code, store.paymentMode);
       store.setEntryItem(data.item);
       store.setEntryShade(data.shade);
       store.setEntryPrice(String(data.price || ""));
@@ -325,7 +332,25 @@ export default function App() {
   };
 
   const loadBillForEdit = async (bill: RetrievedBill) => {
-    store.updateItems(bill.items.map(it => recalcItem({ ...it, cost: it.cost || 0, originalPrice: it.price, priceOverridden: false })));
+    const items = await Promise.all(bill.items.map(async item => {
+      const base = recalcItem({ ...item, cost: item.cost || 0, originalPrice: item.price, priceOverridden: false });
+      if (item.misc) return base;
+      try {
+        const pricing = await fetchPrice(item.item, item.shade, store.paymentMode);
+        return {
+          ...base,
+          price: pricing.price || base.price,
+          individualCashPrice: pricing.individualCashPrice,
+          individualGPayPrice: pricing.individualGPayPrice,
+          packetCashPrice: pricing.packetCashPrice,
+          packetGPayPrice: pricing.packetGPayPrice,
+          packetSize: pricing.packetSize,
+        };
+      } catch {
+        return base;
+      }
+    }));
+    store.updateItems(items);
     store.setCustomerName(bill.customerName);
     store.setPhone(bill.customerPhone);
     store.setPhone2(bill.customerPhone2 || "");

@@ -55,7 +55,7 @@ interface BillingState {
   removeItem: (idx: number) => void;
   updateItemQty: (idx: number, qty: number) => void;
   updateItemPrice: (idx: number, price: number) => void;
-  updateItemShade: (id: string, shade: string, price: number, cost: number) => void;
+  updateItemShade: (id: string, shade: string, price: number, cost: number, pricing?: Partial<BillItem>) => void;
   undoDelete: () => void;
 
   setEntryItem: (v: string) => void;
@@ -154,7 +154,7 @@ function ensureItemIds(items: BillItem[]): BillItem[] {
 function actions(set: any, get: any) {
   return {
     setItems: (items: BillItem[]) => set({ items: ensureItemIds(items) }),
-    updateItems: (items: BillItem[]) => set({ items: applyAllPricingRules(ensureItemIds(items)) }),
+    updateItems: (items: BillItem[]) => set({ items: applyAllPricingRules(ensureItemIds(items), get().paymentMode) }),
 
     addItem: (item: BillItem) => {
       const existingItems = ensureItemIds(get().items);
@@ -164,7 +164,7 @@ function actions(set: any, get: any) {
       );
 
       if (matchingItems.length === 0) {
-        set({ items: applyAllPricingRules([...ensureItemIds(existingItems), { ...item, id: item.id || createItemId() }]) });
+        set({ items: applyAllPricingRules([...ensureItemIds(existingItems), { ...item, id: item.id || createItemId() }], get().paymentMode) });
         return;
       }
 
@@ -190,7 +190,7 @@ function actions(set: any, get: any) {
         }
       }
 
-      set({ items: applyAllPricingRules(mergedItems) });
+      set({ items: applyAllPricingRules(mergedItems, get().paymentMode) });
     },
 
     removeItem: (idx: number) => {
@@ -198,7 +198,7 @@ function actions(set: any, get: any) {
       const last = items[idx];
       const newItems = items.filter((_: any, i: number) => i !== idx);
       set({
-        items: applyAllPricingRules(newItems),
+        items: applyAllPricingRules(newItems, get().paymentMode),
         lastDeletedItem: last,
         lastDeletedIdx: idx,
         selectedRow: null,
@@ -212,7 +212,7 @@ function actions(set: any, get: any) {
       const updated = [...items];
       updated.splice(lastDeletedIdx, 0, lastDeletedItem);
       set({
-        items: applyAllPricingRules(updated),
+        items: applyAllPricingRules(updated, get().paymentMode),
         lastDeletedItem: null,
         lastDeletedIdx: null,
       });
@@ -223,7 +223,7 @@ function actions(set: any, get: any) {
       const items = get().items.map((it: BillItem, i: number) =>
         i === idx ? { ...it, qty, priceOverridden: false } : it
       );
-      set({ items: applyAllPricingRules(items) });
+      set({ items: applyAllPricingRules(items, get().paymentMode) });
     },
 
     updateItemPrice: (idx: number, price: number) => {
@@ -236,14 +236,14 @@ function actions(set: any, get: any) {
       set({ items });
     },
 
-    updateItemShade: (id: string, shade: string, price: number, cost: number) => {
+    updateItemShade: (id: string, shade: string, price: number, cost: number, pricing: Partial<BillItem> = {}) => {
       const items = get().items.map((it: BillItem) => {
         if (it.id !== id) return it;
         const total = it.qty * price;
         const profit = total - cost * it.qty;
-        return { ...it, shade, price, cost, total, profit, priceOverridden: false };
+        return { ...it, ...pricing, shade, price, cost, total, profit, priceOverridden: false };
       });
-      set({ items: applyAllPricingRules(items) });
+      set({ items: applyAllPricingRules(items, get().paymentMode) });
     },
 
     setEntryItem: (entryItem: string) => set({ entryItem }),
@@ -276,7 +276,8 @@ function actions(set: any, get: any) {
     setCustomerType: (customerType: CustomerType) => set({ customerType }),
     setRedeemPoints: (redeemPoints: boolean) => set({ redeemPoints }),
 
-    setPaymentMode: (paymentMode: PaymentMode) => set({ paymentMode }),
+    setPaymentMode: (paymentMode: PaymentMode) =>
+      set({ paymentMode, items: applyAllPricingRules(get().items, paymentMode) }),
     setCourierCharges: (courierCharges: string) => set({ courierCharges }),
     setAmountReceived: (amountReceived: string) => set({ amountReceived }),
 

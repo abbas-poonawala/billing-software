@@ -13,7 +13,7 @@ export function useItemSearch() {
   const priceCache = useRef<Record<string, { price: number; qty: number }>>({});
 
   const {
-    entryItem, entryShade,
+    entryItem, entryShade, paymentMode,
     setEntryPrice, setEntryCost,
   } = useBillingStore();
 
@@ -63,7 +63,7 @@ export function useItemSearch() {
     if (!entryItem || !entryShade) return;
     if (!allItems.includes(entryItem) || !shades.includes(entryShade)) return;
 
-    const key = `${entryItem}__${entryShade}`;
+    const key = `${entryItem}__${entryShade}__${paymentMode}`;
 
     if (priceCache.current[key]) {
       setEntryPrice(String(priceCache.current[key].price));
@@ -75,7 +75,7 @@ export function useItemSearch() {
       return;
     }
 
-    fetchPrice(entryItem, entryShade).then(({ price, qty }) => {
+    fetchPrice(entryItem, entryShade, paymentMode).then(({ price, qty }) => {
       priceCache.current[key] = { price, qty };
       setEntryPrice(String(price));
       if (qty >= 0 && qty < 2 && warnedKey.current !== key) {
@@ -83,7 +83,7 @@ export function useItemSearch() {
         warnedKey.current = key;
       }
     });
-  }, [entryItem, entryShade, shades, allItems]);
+  }, [entryItem, entryShade, shades, allItems, paymentMode]);
 
   // fuse search
 

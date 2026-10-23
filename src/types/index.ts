@@ -16,6 +16,11 @@ export type BillItem = {
   profit: number;
   misc?: boolean;
   priceOverridden?: boolean;
+  individualCashPrice?: number;
+  individualGPayPrice?: number;
+  packetCashPrice?: number;
+  packetGPayPrice?: number;
+  packetSize?: number;
 };
 
 export type Customer = {

@@ -1,4 +1,4 @@
-import type { Customer, PointsConfig, RetrievedBill } from "../types";
+import type { Customer, PaymentMode, PointsConfig, RetrievedBill } from "../types";
 
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
@@ -32,15 +32,29 @@ export interface PriceResult {
   price: number;
   qty: number;
   method?: string;
+  individualCashPrice?: number;
+  individualGPayPrice?: number;
+  packetCashPrice?: number;
+  packetGPayPrice?: number;
+  packetSize?: number;
 }
 
-export async function fetchPrice(item: string, shade: string): Promise<PriceResult> {
-  return dedupeRequest(`price:${item.toLowerCase()}:${shade.toLowerCase()}`, async () => {
+export async function fetchPrice(item: string, shade: string, paymentMode: PaymentMode = "GPay"): Promise<PriceResult> {
+  return dedupeRequest(`price:${item.toLowerCase()}:${shade.toLowerCase()}:${paymentMode}`, async () => {
     const res = await fetch(
-      `/api/core?action=getPrice&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}`
+      `/api/core?action=getPrice&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}&paymentMode=${paymentMode}`
     );
     const data = await res.json();
-    return { price: data.price || 0, qty: data.qty ?? -1, method: data.method };
+    return {
+      price: data.price || 0,
+      qty: data.qty ?? -1,
+      method: data.method,
+      individualCashPrice: data.individualCashPrice,
+      individualGPayPrice: data.individualGPayPrice,
+      packetCashPrice: data.packetCashPrice,
+      packetGPayPrice: data.packetGPayPrice,
+      packetSize: data.packetSize,
+    };
   });
 }
 
@@ -96,10 +110,15 @@ export interface BarcodeResult {
   item: string;
   shade: string;
   price: number;
+  individualCashPrice?: number;
+  individualGPayPrice?: number;
+  packetCashPrice?: number;
+  packetGPayPrice?: number;
+  packetSize?: number;
 }
 
-export async function lookupBarcode(barcode: string): Promise<BarcodeResult> {
-  const res = await fetch(`/api/lookupBarcode?barcode=${encodeURIComponent(barcode)}`);
+export async function lookupBarcode(barcode: string, paymentMode: PaymentMode = "GPay"): Promise<BarcodeResult> {
+  const res = await fetch(`/api/lookupBarcode?barcode=${encodeURIComponent(barcode)}&paymentMode=${paymentMode}`);
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Product not found");
   return data;

@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { barcode } = req.query;
+  const { barcode, paymentMode } = req.query;
   if (!barcode || typeof barcode !== "string") {
     return res.status(400).json({ error: "Missing barcode parameter" });
   }
@@ -33,7 +33,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     const skipTabs = [
       "bill", "registry", "profit", "discount", "discounts", "customers",
-      "pointslog", "pointsconfig", "restock requests", "loft fallback log"
+      "pointslog", "pointsconfig", "pointsconfig", "restock requests", "loft fallback log",
+      "bills", "billitems", "customers", "profit", "discounts"
     ];
     const itemTabs = (sheetMeta.data.sheets || [])
       .map((s: any) => s.properties?.title || "")
@@ -43,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Search columns A:D (barcode, shade, stock, price)
       const response = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
-        range: `${escapeSheetName(sheetName)}!A2:D`,
+        range: `${escapeSheetName(sheetName)}!A2:E`,
       });
       const rows = response.data.values || [];
       for (let i = 0; i < rows.length; i++) {
@@ -52,11 +53,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (barcodeCell === barcode) {
           const shade = row[1]?.toString().trim() || "";
           const stock = Number(row[2]) || 0;
-          const price = Number(row[3]) || 0;
+          const cashPrice = Number(row[3]) || 0;
+          const gpayPrice = Number(row[4]) || cashPrice;
+          const registryResponse = await gsapi.spreadsheets.values.get({
+            spreadsheetId: STORE_SHEET_ID,
+            range: "Registry!A2:F",
+          });
+          const registryRow = (registryResponse.data.values || []).find((candidate: any[]) =>
+            (candidate[1] || "").toString().trim().toLowerCase() === sheetName.trim().toLowerCase()
+          );
           return res.status(200).json({
-            item: sheetName,
+            item: registryRow?.[0] || sheetName,
             shade: shade,
-            price: price,
+            price: paymentMode === "Cash" ? cashPrice : gpayPrice,
+            individualCashPrice: cashPrice,
+            individualGPayPrice: gpayPrice,
+            packetCashPrice: Number(registryRow?.[4]) || 0,
+            packetGPayPrice: Number(registryRow?.[5]) || 0,
+            packetSize: Number(registryRow?.[3]) || 0,
             stock: stock,
           });
         }

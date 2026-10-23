@@ -30,7 +30,7 @@ export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): B
       });
 
       const processedGroups = new Set<string>();
-      items.forEach((originalItem, index) => {
+      items.forEach(originalItem => {
         const key = `${originalItem.item.trim().toLowerCase()}|${originalItem.shade.trim().toLowerCase()}`;
         const indexes = groups.get(key);
         if (indexes && processedGroups.has(key)) return;

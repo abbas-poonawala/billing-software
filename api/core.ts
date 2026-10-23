@@ -24,14 +24,14 @@ async function getRegistryRows(gsapi: any): Promise<any[][]> {
   if (registryCache && Date.now() - registryCache.ts < CACHE_TTL) return registryCache.rows;
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: "Registry!A2:F",
+    range: "Registry!A2:C",
   });
   const rows = response.data.values || [];
   registryCache = { rows, ts: Date.now() };
   return rows;
 }
 
-async function getRegistryEntry(gsapi: any, item: string): Promise<{ item: string; sheetName: string; packetSize: number; packetCashPrice: number; packetGPayPrice: number } | null> {
+async function getRegistryEntry(gsapi: any, item: string): Promise<{ item: string; sheetName: string; packetSize: number } | null> {
   const target = normalizeShade(item);
   const row = (await getRegistryRows(gsapi)).find((candidate: any[]) =>
     normalizeShade(candidate[0] || "") === target || normalizeShade(candidate[1] || "") === target
@@ -40,9 +40,7 @@ async function getRegistryEntry(gsapi: any, item: string): Promise<{ item: strin
   return {
     item: String(row[0] || item),
     sheetName: String(row[1] || row[0] || item),
-    packetSize: Number(row[3]) || 0,
-    packetCashPrice: Number(row[4]) || 0,
-    packetGPayPrice: Number(row[5]) || 0,
+    packetSize: Number(row[2]) || 0,
   };
 }
 
@@ -219,66 +217,64 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
     });
   }
 
-  // try hooks sheet first
+  let stock = 0;
+  let method = "notfound";
   try {
     const response = await gsapi.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `'${sheetName.replace(/'/g, "''")}'!B2:E`,
+      range: `'${sheetName.replace(/'/g, "''")}'!B2:C`,
     });
     const rows = response.data.values || [];
-    if (rows.length > 0) {
-      const match = findBestShadeMatch(target, rows);
-      if (match) {
-        const stock = match.row[1] ? Number(match.row[1]) : 0;
-        const individualCashPrice = Number(match.row[2]) || 0;
-        const individualGPayPrice = Number(match.row[3]) || individualCashPrice;
-        const entry = {
-          price: requestedMode === "Cash" ? individualCashPrice : individualGPayPrice,
-          qty: stock, ts: Date.now(), individualCashPrice, individualGPayPrice,
-          packetCashPrice: registry?.packetCashPrice || 0,
-          packetGPayPrice: registry?.packetGPayPrice || 0,
-          packetSize: registry?.packetSize || 0,
-          method: match.method,
-        };
-        priceCache.set(cacheKey, entry);
-        return res.status(200).json(entry);
-      }
+    const match = findBestShadeMatch(target, rows);
+    if (match) {
+      stock = Number(match.row[1]) || 0;
+      method = match.method;
     }
   } catch (err: any) {
     console.log(`Primary sheet lookup failed for item "${item}", shade "${shade}", trying LOFT`);
   }
 
-  // fallback to loft sheet if no match found in hooks sheet
-  try {
-    const loftResponse = await gsapi.spreadsheets.values.get({
-      spreadsheetId: LOFT_SHEET_ID,
-      range: `'${sheetName.replace(/'/g, "''")}'!B2:E`,
-    });
-    const rows = loftResponse.data.values || [];
-    if (rows.length > 0) {
-      const match = findBestShadeMatch(target, rows);
+  if (method === "notfound") {
+    try {
+      const loftResponse = await gsapi.spreadsheets.values.get({
+        spreadsheetId: LOFT_SHEET_ID,
+        range: `'${sheetName.replace(/'/g, "''")}'!B2:C`,
+      });
+      const match = findBestShadeMatch(target, loftResponse.data.values || []);
       if (match) {
-        const stock = match.row[1] ? Number(match.row[1]) : 0;
-        const individualCashPrice = Number(match.row[2]) || 0;
-        const individualGPayPrice = Number(match.row[3]) || individualCashPrice;
-        const entry = {
-          price: requestedMode === "Cash" ? individualCashPrice : individualGPayPrice,
-          qty: stock, ts: Date.now(), individualCashPrice, individualGPayPrice,
-          packetCashPrice: registry?.packetCashPrice || 0,
-          packetGPayPrice: registry?.packetGPayPrice || 0,
-          packetSize: registry?.packetSize || 0,
-          method: `loft-${match.method}`,
-        };
-        priceCache.set(cacheKey, entry);
-        return res.status(200).json(entry);
+        stock = Number(match.row[1]) || 0;
+        method = `loft-${match.method}`;
       }
+    } catch (err: any) {
+      console.log(`LOFT sheet lookup also failed for item "${item}"`);
     }
-  } catch (err: any) {
-    console.log(`LOFT sheet lookup also failed for item "${item}"`);
   }
 
-  // no match found in either sheet, return 0
-  return res.status(200).json({ price: 0, qty: 0, method: "notfound" });
+  const profitResponse = await gsapi.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "Profit!A2:G",
+  });
+  const profitRows = profitResponse.data.values || [];
+  const profitRow = profitRows.find((row: any[]) =>
+    normalizeShade(row[0] || "") === normalizeShade(registry?.item || item) &&
+    normalizeShade(row[1] || "") === target
+  );
+  if (!profitRow) {
+    return res.status(200).json({ price: 0, qty: stock, method: "notfound" });
+  }
+
+  const individualCashPrice = Number(profitRow[3]) || 0;
+  const individualGPayPrice = Number(profitRow[4]) || individualCashPrice;
+  const entry = {
+    price: requestedMode === "Cash" ? individualCashPrice : individualGPayPrice,
+    qty: stock, ts: Date.now(), individualCashPrice, individualGPayPrice,
+    packetCashPrice: Number(profitRow[5]) || 0,
+    packetGPayPrice: Number(profitRow[6]) || 0,
+    packetSize: registry?.packetSize || 0,
+    method,
+  };
+  priceCache.set(cacheKey, entry);
+  return res.status(200).json(entry);
 }
 
 async function handleGetCost(gsapi: any, req: VercelRequest, res: VercelResponse) {

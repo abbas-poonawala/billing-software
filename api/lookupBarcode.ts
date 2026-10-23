@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Search columns A:D (barcode, shade, stock, price)
       const response = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
-        range: `${escapeSheetName(sheetName)}!A2:E`,
+        range: `${escapeSheetName(sheetName)}!A2:C`,
       });
       const rows = response.data.values || [];
       for (let i = 0; i < rows.length; i++) {
@@ -53,24 +53,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (barcodeCell === barcode) {
           const shade = row[1]?.toString().trim() || "";
           const stock = Number(row[2]) || 0;
-          const cashPrice = Number(row[3]) || 0;
-          const gpayPrice = Number(row[4]) || cashPrice;
+          const profitResponse = await gsapi.spreadsheets.values.get({
+            spreadsheetId: STORE_SHEET_ID,
+            range: "Profit!A2:G",
+          });
           const registryResponse = await gsapi.spreadsheets.values.get({
             spreadsheetId: STORE_SHEET_ID,
-            range: "Registry!A2:F",
+            range: "Registry!A2:C",
           });
           const registryRow = (registryResponse.data.values || []).find((candidate: any[]) =>
             (candidate[1] || "").toString().trim().toLowerCase() === sheetName.trim().toLowerCase()
           );
+          const profitRow = (profitResponse.data.values || []).find((candidate: any[]) =>
+            (candidate[0] || "").toString().trim().toLowerCase() === (registryRow?.[0] || sheetName).toString().trim().toLowerCase() &&
+            (candidate[1] || "").toString().trim().toLowerCase() === shade.toLowerCase()
+          );
+          const cashPrice = Number(profitRow?.[3]) || 0;
+          const gpayPrice = Number(profitRow?.[4]) || cashPrice;
           return res.status(200).json({
             item: registryRow?.[0] || sheetName,
             shade: shade,
             price: paymentMode === "Cash" ? cashPrice : gpayPrice,
             individualCashPrice: cashPrice,
             individualGPayPrice: gpayPrice,
-            packetCashPrice: Number(registryRow?.[4]) || 0,
-            packetGPayPrice: Number(registryRow?.[5]) || 0,
-            packetSize: Number(registryRow?.[3]) || 0,
+            packetCashPrice: Number(profitRow?.[5]) || 0,
+            packetGPayPrice: Number(profitRow?.[6]) || 0,
+            packetSize: Number(registryRow?.[2]) || 0,
             stock: stock,
           });
         }

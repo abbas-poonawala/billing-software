@@ -10,7 +10,7 @@ const STORE_SHEET_ID = process.env.SHEET_ID!;
 const RESTOCK_PHONE = "9004452933";
 const RESTOCK_SHEET = "Restock Requests";
 
-type RegistryRule = { item: string; tabName: string; min: number; max: number };
+type RegistryRule = { item: string; tabName: string; packetSize: number };
 type StockEntry = { item: string; tabName: string; shade: string; stock: number };
 type PendingEntry = { item: string; tabName: string; shade: string; quantity: number };
 
@@ -59,15 +59,14 @@ async function ensureRestockSheet(gsapi: any): Promise<void> {
 async function readRegistry(gsapi: any): Promise<RegistryRule[]> {
   const response = await gsapi.spreadsheets.values.get({
     spreadsheetId: STORE_SHEET_ID,
-    range: "Registry!A2:D",
+    range: "Registry!A2:C",
   });
   return (response.data.values || []).flatMap((row: unknown[]) => {
     const item = String(row[0] ?? "").trim();
     const tabName = String(row[1] ?? "").trim();
-    const min = numberOrNull(row[2]);
-    const max = numberOrNull(row[3]);
-    if (!item || !tabName || min === null || max === null || max < min) return [];
-    return [{ item, tabName, min, max }];
+    const packetSize = numberOrNull(row[2]);
+    if (!item || !tabName || packetSize === null || packetSize <= 0) return [];
+    return [{ item, tabName, packetSize }];
   });
 }
 
@@ -169,9 +168,8 @@ async function handleStoreRestock(res: VercelResponse): Promise<VercelResponse> 
 
     for (const entry of inventory) {
       const rule = rulesByTab.get(normalise(entry.tabName));
-      if (!rule || entry.stock >= rule.min) continue;
-
-      const required = Math.max(0, Math.ceil(rule.max - entry.stock));
+      if (!rule || entry.stock >= rule.packetSize) continue;
+      const required = Math.max(0, Math.ceil(rule.packetSize - entry.stock));
       if (required <= 0) continue;
       const key = keyFor(entry.tabName, entry.shade);
       const existing = pending.get(key);

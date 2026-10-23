@@ -30,13 +30,18 @@ Small retail stores often rely on manual billing, or invest highly in generic so
 
 |  Registry  |               Master List               |
 
-|   <Item>   |  Per-item Tab with shades, stock, price |
+|   <Item>   |  Per-item Tab with barcode, shade, stock and update metadata |
 
-|   Profit   | Cost Price per item/size for profit cal |
+|   Profit   | Cost and cash/GPay selling prices per item/shade |
 
 |    Bill    |              Transaction Log            |
 
 |  Discounts |        Slab based discount config       |
+
+Registry uses `Item`, `Tab Name`, and `Packet Size`. Profit uses `Item`, `Shade / Variant`,
+`Cost Price`, `Cash Selling Price`, `GPay Selling Price`, `Cash Packet Price`,
+`GPay Packet Price`, followed by the profit columns. Packet prices are per-ball prices;
+the packet size controls when that reduced per-ball price applies.
 
 ## Environment Variables
 ```env

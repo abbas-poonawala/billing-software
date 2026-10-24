@@ -486,7 +486,7 @@ async function deductStoreStock(
     });
     await gsapi.spreadsheets.values.update({
       spreadsheetId: STORE_SHEET_ID,
-      range: `${escapeSheetName(item)}!E${rowIndex + 2}`,
+      range: `${escapeSheetName(item)}!F${rowIndex + 2}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[timestamp]] },
     });

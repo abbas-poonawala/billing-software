@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Search columns A:D (barcode, shade, stock, price)
       const response = await gsapi.spreadsheets.values.get({
         spreadsheetId: STORE_SHEET_ID,
-        range: `${escapeSheetName(sheetName)}!A2:C`,
+        range: `${escapeSheetName(sheetName)}!A2:E`,
       });
       const rows = response.data.values || [];
       for (let i = 0; i < rows.length; i++) {
@@ -53,6 +53,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (barcodeCell === barcode) {
           const shade = row[1]?.toString().trim() || "";
           const stock = Number(row[2]) || 0;
+          const cashPrice = Number(row[3]) || 0;
+          const gpayPrice = Number(row[4]) || cashPrice;
           const profitResponse = await gsapi.spreadsheets.values.get({
             spreadsheetId: STORE_SHEET_ID,
             range: "Profit!A2:G",
@@ -68,8 +70,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             (candidate[0] || "").toString().trim().toLowerCase() === (registryRow?.[0] || sheetName).toString().trim().toLowerCase() &&
             (candidate[1] || "").toString().trim().toLowerCase() === shade.toLowerCase()
           );
-          const cashPrice = Number(profitRow?.[3]) || 0;
-          const gpayPrice = Number(profitRow?.[4]) || cashPrice;
           return res.status(200).json({
             item: registryRow?.[0] || sheetName,
             shade: shade,

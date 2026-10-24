@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import type { BillItem, Customer, CustomerType, PaymentMode, PointsConfig } from "../types";
 import { applyAllPricingRules, computeBillTotals } from "../pricing/resolver";
+import { fetchPrice } from "../services/api";
 
 interface BillingState {
   // bill items
@@ -73,7 +74,7 @@ interface BillingState {
   setCustomerType: (v: CustomerType) => void;
   setRedeemPoints: (v: boolean) => void;
 
-  setPaymentMode: (v: PaymentMode) => void;
+  setPaymentMode: (v: PaymentMode) => Promise<void>;
   setCourierCharges: (v: string) => void;
   setAmountReceived: (v: string) => void;
 
@@ -121,7 +122,7 @@ const INITIAL_BILL_STATE = {
   entryQty: "",
   entryPrice: "",
   entryCost: "",
-  paymentMode: "GPay" as PaymentMode,
+  paymentMode: "Cash" as PaymentMode,
   courierCharges: "",
   amountReceived: "",
   nextBillNo: null as number | null,
@@ -141,6 +142,7 @@ const INITIAL_BILL_STATE = {
 };
 
 let nextItemId = 0;
+let pricingRefreshVersion = 0;
 
 function createItemId(): string {
   nextItemId += 1;
@@ -276,8 +278,35 @@ function actions(set: any, get: any) {
     setCustomerType: (customerType: CustomerType) => set({ customerType }),
     setRedeemPoints: (redeemPoints: boolean) => set({ redeemPoints }),
 
-    setPaymentMode: (paymentMode: PaymentMode) =>
-      set({ paymentMode, items: applyAllPricingRules(get().items, paymentMode) }),
+    setPaymentMode: async (paymentMode: PaymentMode) => {
+      const version = ++pricingRefreshVersion;
+      set({ paymentMode });
+      const currentItems = get().items;
+      const pricingByKey = new Map<string, Partial<BillItem>>();
+      await Promise.all(currentItems
+        .filter(item => !item.misc && !item.priceOverridden)
+        .map(async item => {
+          const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
+          if (pricingByKey.has(key)) return;
+          const pricing = await fetchPrice(item.item, item.shade, paymentMode);
+          pricingByKey.set(key, pricing);
+        }));
+      if (version !== pricingRefreshVersion || get().paymentMode !== paymentMode) return;
+      const refreshedItems = get().items.map(item => {
+        if (item.misc || item.priceOverridden) return item;
+        const pricing = pricingByKey.get(`${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`);
+        return pricing ? {
+          ...item,
+          price: pricing.price || item.price,
+          individualCashPrice: pricing.individualCashPrice,
+          individualGPayPrice: pricing.individualGPayPrice,
+          packetCashPrice: pricing.packetCashPrice,
+          packetGPayPrice: pricing.packetGPayPrice,
+          packetSize: pricing.packetSize,
+        } : item;
+      });
+      set({ items: applyAllPricingRules(refreshedItems, paymentMode) });
+    },
     setCourierCharges: (courierCharges: string) => set({ courierCharges }),
     setAmountReceived: (amountReceived: string) => set({ amountReceived }),
 

@@ -96,7 +96,7 @@ export function recalcItem(item: BillItem): BillItem {
 }
 
 
-export function applyAllPricingRules(items: BillItem[], paymentMode: PaymentMode = "GPay"): BillItem[] {
+export function applyAllPricingRules(items: BillItem[], paymentMode: PaymentMode = "Cash"): BillItem[] {
   return applyBulkPricing(items, paymentMode);
 }
 

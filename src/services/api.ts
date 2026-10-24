@@ -39,7 +39,7 @@ export interface PriceResult {
   packetSize?: number;
 }
 
-export async function fetchPrice(item: string, shade: string, paymentMode: PaymentMode = "GPay"): Promise<PriceResult> {
+export async function fetchPrice(item: string, shade: string, paymentMode: PaymentMode = "Cash"): Promise<PriceResult> {
   return dedupeRequest(`price:${item.toLowerCase()}:${shade.toLowerCase()}:${paymentMode}`, async () => {
     const res = await fetch(
       `/api/core?action=getPrice&item=${encodeURIComponent(item)}&shade=${encodeURIComponent(shade)}&paymentMode=${paymentMode}`
@@ -117,7 +117,7 @@ export interface BarcodeResult {
   packetSize?: number;
 }
 
-export async function lookupBarcode(barcode: string, paymentMode: PaymentMode = "GPay"): Promise<BarcodeResult> {
+export async function lookupBarcode(barcode: string, paymentMode: PaymentMode = "Cash"): Promise<BarcodeResult> {
   const res = await fetch(`/api/lookupBarcode?barcode=${encodeURIComponent(barcode)}&paymentMode=${paymentMode}`);
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Product not found");

@@ -19,54 +19,43 @@ function priceForMode(item: BillItem, paymentMode: PaymentMode, packet: boolean)
 }
 
 export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): BillItem[] {
-      const result: BillItem[] = [];
-      const groups = new Map<string, number[]>();
+  const result: BillItem[] = [];
+  const groups = new Map<string, BillItem[]>();
 
-      items.forEach((item, index) => {
-        if (item.priceOverridden) return;
-        const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
-        groups.set(key, [...(groups.get(key) || []), index]);
-      });
+  for (const item of items) {
+    if (item.priceOverridden) {
+      result.push(recalcItem(item));
+      continue;
+    }
+    const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
+    groups.set(key, [...(groups.get(key) || []), item]);
+  }
 
-      const processedGroups = new Set<string>();
-      items.forEach(originalItem => {
-        const key = `${originalItem.item.trim().toLowerCase()}|${originalItem.shade.trim().toLowerCase()}`;
-        const indexes = groups.get(key);
-        if (indexes && processedGroups.has(key)) return;
-        if (!indexes || originalItem.priceOverridden) {
-          result.push(originalItem);
-          return;
-        }
-        processedGroups.add(key);
+  for (const group of groups.values()) {
+    const source = group[0];
+    const totalQty = group.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
+    const packetSize = Number(source.packetSize) || 0;
+    const packetQty = packetSize > 0 ? Math.floor(totalQty / packetSize) * packetSize : 0;
+    const individualQty = totalQty - packetQty;
+    const individualPrice = priceForMode(source, paymentMode, false);
+    const packetPrice = priceForMode(source, paymentMode, true);
 
-        const packetSize = originalItem.packetSize || 0;
-        if (packetSize <= 0) {
-          for (const itemIndex of indexes) {
-            const item = items[itemIndex];
-            result.push(recalcItem({ ...item, price: priceForMode(item, paymentMode, false) }));
-          }
-          return;
-        }
-        const totalQty = packetSize > 0
-          ? indexes.reduce((sum, itemIndex) => sum + Math.max(0, items[itemIndex].qty), 0)
-          : 0;
-        let packetRemaining = Math.floor(totalQty / packetSize) * packetSize;
-
-        for (const itemIndex of indexes) {
-          const item = items[itemIndex];
-          const packetQty = Math.min(packetRemaining, item.qty);
-          packetRemaining -= packetQty;
-          const individualQty = item.qty - packetQty;
-          const packetPrice = priceForMode(item, paymentMode, true);
-          const individualPrice = priceForMode(item, paymentMode, false);
-          if (packetQty > 0) {
-            result.push(recalcItem({ ...item, id: item.id ? `${item.id}-packet` : undefined, qty: packetQty, price: packetPrice }));
-          }
-          if (individualQty > 0) {
-            result.push(recalcItem({ ...item, qty: individualQty, price: individualPrice }));
-          }
-        }
-      });
+    if (packetQty > 0) {
+      result.push(recalcItem({
+        ...source,
+        id: source.id ? `${source.id}-packet` : undefined,
+        qty: packetQty,
+        price: packetPrice,
+      }));
+    }
+    if (individualQty > 0) {
+      result.push(recalcItem({
+        ...source,
+        qty: individualQty,
+        price: individualPrice,
+      }));
+    }
+  }
 
   return result;
 }
@@ -84,7 +73,6 @@ export interface BillTotals {
 export function computeBillTotals(
   items: BillItem[],
   courierCharges: number,
-  paymentMode: PaymentMode,
   amountReceived: number
 ): BillTotals {
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);

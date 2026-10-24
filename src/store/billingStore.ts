@@ -341,14 +341,13 @@ export const useBillingStore = create<BillingState>((set, get) => ({
 export function useBillTotals() {
   const items = useBillingStore((state) => state.items);
   const courierCharges = useBillingStore((state) => state.courierCharges);
-  const paymentMode = useBillingStore((state) => state.paymentMode);
   const amountReceived = useBillingStore((state) => state.amountReceived);
   const customerType = useBillingStore((state) => state.customerType);
 
   return useMemo(() => {
     const effectiveCourier = customerType === "courier" ? Number(courierCharges) || 0 : 0;
-    return computeBillTotals(items, effectiveCourier, paymentMode, Number(amountReceived) || 0);
-  }, [items, courierCharges, paymentMode, amountReceived, customerType]);
+    return computeBillTotals(items, effectiveCourier, Number(amountReceived) || 0);
+  }, [items, courierCharges, amountReceived, customerType]);
 }
 
 export function useDisplayBillMeta() {

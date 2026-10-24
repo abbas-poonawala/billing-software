@@ -284,15 +284,15 @@ function actions(set: any, get: any) {
       const currentItems = get().items;
       const pricingByKey = new Map<string, Partial<BillItem>>();
       await Promise.all(currentItems
-        .filter(item => !item.misc && !item.priceOverridden)
-        .map(async item => {
+        .filter((item: BillItem) => !item.misc && !item.priceOverridden)
+        .map(async (item: BillItem) => {
           const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
           if (pricingByKey.has(key)) return;
           const pricing = await fetchPrice(item.item, item.shade, paymentMode);
           pricingByKey.set(key, pricing);
         }));
       if (version !== pricingRefreshVersion || get().paymentMode !== paymentMode) return;
-      const refreshedItems = get().items.map(item => {
+      const refreshedItems = get().items.map((item: BillItem) => {
         if (item.misc || item.priceOverridden) return item;
         const pricing = pricingByKey.get(`${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`);
         return pricing ? {

@@ -68,7 +68,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           );
           const profitRow = (profitResponse.data.values || []).find((candidate: any[]) =>
             (candidate[0] || "").toString().trim().toLowerCase() === (registryRow?.[0] || sheetName).toString().trim().toLowerCase() &&
-            (candidate[1] || "").toString().trim().toLowerCase() === shade.toLowerCase()
+            (
+              (candidate[1] || "").toString().trim().toLowerCase() === shade.toLowerCase() ||
+              (candidate[1] || "").toString().trim().toLowerCase().startsWith(shade.toLowerCase()) ||
+              shade.toLowerCase().startsWith((candidate[1] || "").toString().trim().toLowerCase())
+            )
           );
           return res.status(200).json({
             item: registryRow?.[0] || sheetName,

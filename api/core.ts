@@ -92,6 +92,34 @@ function findBestShadeMatch(target: string, rows: any[]): any {
   return null;
 }
 
+async function getProfitPricing(
+  gsapi: any,
+  item: string,
+  sheetName: string,
+  shade: string
+): Promise<{ packetCashPrice: number; packetGPayPrice: number }> {
+  const response = await gsapi.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "Profit!A2:G",
+  });
+  const targetItem = normalizeShade(item);
+  const targetSheet = normalizeShade(sheetName);
+  const targetShade = normalizeShade(shade);
+  const row = (response.data.values || []).find((candidate: any[]) => {
+    const rowItem = normalizeShade(candidate[0] || "");
+    const rowShade = normalizeShade(candidate[1] || "");
+    const itemMatches = rowItem === targetItem || rowItem === targetSheet;
+    const shadeMatches = rowShade === targetShade ||
+      rowShade.startsWith(targetShade) ||
+      targetShade.startsWith(rowShade);
+    return itemMatches && shadeMatches;
+  });
+  return {
+    packetCashPrice: Number(row?.[5]) || 0,
+    packetGPayPrice: Number(row?.[6]) || 0,
+  };
+}
+
 function normalizePhone(phone: string): string {
   const trimmed = phone.trim();
   if (!trimmed) return "";
@@ -231,19 +259,16 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
       const individualCashPrice = Number(match.row[2]) || 0;
       const individualGPayPrice = Number(match.row[3]) || individualCashPrice;
       method = match.method;
-      const profitResponse = await gsapi.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: "Profit!A2:G",
-      });
-      const profitRow = (profitResponse.data.values || []).find((row: any[]) =>
-        normalizeShade(row[0] || "") === normalizeShade(registry?.item || item) &&
-        normalizeShade(row[1] || "") === target
+      const packetPricing = await getProfitPricing(
+        gsapi,
+        registry?.item || item,
+        sheetName,
+        match.row[0] || shade
       );
       const entry = {
         price: requestedMode === "Cash" ? individualCashPrice : individualGPayPrice,
         qty: stock, ts: Date.now(), individualCashPrice, individualGPayPrice,
-        packetCashPrice: Number(profitRow?.[5]) || 0,
-        packetGPayPrice: Number(profitRow?.[6]) || 0,
+        ...packetPricing,
         packetSize: registry?.packetSize || 0,
         method,
       };
@@ -266,19 +291,16 @@ async function handleGetPrice(gsapi: any, req: VercelRequest, res: VercelRespons
         const individualCashPrice = Number(match.row[2]) || 0;
         const individualGPayPrice = Number(match.row[3]) || individualCashPrice;
         method = `loft-${match.method}`;
-        const profitResponse = await gsapi.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
-          range: "Profit!A2:G",
-        });
-        const profitRow = (profitResponse.data.values || []).find((row: any[]) =>
-          normalizeShade(row[0] || "") === normalizeShade(registry?.item || item) &&
-          normalizeShade(row[1] || "") === target
+        const packetPricing = await getProfitPricing(
+          gsapi,
+          registry?.item || item,
+          sheetName,
+          match.row[0] || shade
         );
         const entry = {
           price: requestedMode === "Cash" ? individualCashPrice : individualGPayPrice,
           qty: stock, ts: Date.now(), individualCashPrice, individualGPayPrice,
-          packetCashPrice: Number(profitRow?.[5]) || 0,
-          packetGPayPrice: Number(profitRow?.[6]) || 0,
+          ...packetPricing,
           packetSize: registry?.packetSize || 0,
           method,
         };

@@ -225,7 +225,6 @@ export default function App() {
         items: store.items.map(i => ({ ...i, total: i.qty * i.price, profit: i.profit })),
         finalTotal: totals.finalTotal,
         courierCharges: store.customerType === "courier" ? Number(store.courierCharges) : 0,
-        cashDiscount: store.paymentMode === "Cash" ? totals.cashDiscount : null,
         paymentMode: store.paymentMode,
         billDate: store.billDate,
         billTime: store.billTime,
@@ -543,7 +542,6 @@ export default function App() {
           billTime={displayBillTime}
           itemSubtotal={totals.subtotalBeforeCharges}
           courierCharges={store.customerType === "courier" ? Number(store.courierCharges) || 0 : 0}
-          cashDiscount={totals.cashDiscount}
           finalTotal={totals.finalTotal}
           paymentMode={store.paymentMode}
         >
@@ -669,11 +667,6 @@ export default function App() {
                 <div style={{ marginTop: 8, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
                   <span>Final Total:</span><span>₹{formatPrice(retrievedBill.finalTotal)}</span>
                 </div>
-                {(retrievedBill.cashDiscount ?? 0) > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", color: "#dc2626", fontSize: 12 }}>
-                    <span>Cash Discount (2%):</span><span>- ₹{formatPrice(retrievedBill.cashDiscount!)}</span>
-                  </div>
-                )}
                 <button
                   onClick={() => loadBillForEdit(retrievedBill)}
                   style={{ marginTop: 12, padding: "8px 12px", width: "100%", fontSize: 13, fontWeight: 600, background: "#10b981", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}

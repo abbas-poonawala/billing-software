@@ -64,7 +64,6 @@ export type RetrievedBill = {
   time: string;
   courierCharges: number;
   paymentMode: PaymentMode;
-  cashDiscount?: number | null;
   finalTotal: number;
   lastUpdated?: string;
   originalRowIndexes: number[];
@@ -109,7 +108,6 @@ export type DraftBill = {
   customer: Customer | null;
   // captured financials at time of save attempt
   finalTotal?: number;
-  cashDiscount?: number | null;
   courierChargesNum?: number;
   saveAttempts: number;
   lastError?: string;

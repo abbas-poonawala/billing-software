@@ -15,7 +15,6 @@ interface Props {
   billTime: string;
   courierCharges: number;
   itemSubtotal: number;
-  cashDiscount: number;
   finalTotal: number;
   paymentMode: PaymentMode;
   children?: React.ReactNode;
@@ -33,7 +32,6 @@ export default function PrintBill({
   billTime,
   courierCharges,
   itemSubtotal,
-  cashDiscount,
   finalTotal,
   children,
 }: Props) {
@@ -126,12 +124,6 @@ export default function PrintBill({
           <div style={styles.chargeRow}>
             <span>Forwarding Charges:</span>
             <span>+ ₹{formatPrice(courierCharges)}</span>
-          </div>
-        )}
-        {cashDiscount > 0 && (
-          <div style={styles.chargeRow}>
-            <span>Cash Discount (2%):</span>
-            <span>- ₹{formatPrice(cashDiscount)}</span>
           </div>
         )}
         <div style={styles.grandTotalRow}>

@@ -142,7 +142,6 @@ export interface SaveBillPayload {
   items: any[];
   finalTotal: number;
   courierCharges: number;
-  cashDiscount: number | null;
   paymentMode: string;
   billDate: string;
   billTime: string;

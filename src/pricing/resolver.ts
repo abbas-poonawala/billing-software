@@ -6,7 +6,6 @@
  * Supported pricing modes:
  *  - Normal (default): price from sheet
  *  - Registry packet slab: packet size and prices come from Registry
- *  - Cash discount: 2% off the item total plus courier charges
  *  - Manual override: cashier overrides price, flag kept
  */
 
@@ -72,22 +71,12 @@ export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): B
   return result;
 }
 
-// cash discount
-
-const GPAY_RATE = 0.02;
-
-export function computeCashDiscount(subtotal: number, paymentMode: PaymentMode): number {
-  if (paymentMode !== "Cash") return 0;
-  return Math.round(subtotal * GPAY_RATE * 100) / 100;
-}
-
 // bill totals
 
 export interface BillTotals {
   grandTotal: number; // sum of all item totals
   subtotalBeforeCharges: number; // item total before courier charges
   subtotalWithCourier: number; // + courier charges
-  cashDiscount: number; // 2% for Cash
   finalTotal: number; // the number that matters
   changeAmount: number;  // cash back to customer
 }
@@ -101,11 +90,10 @@ export function computeBillTotals(
   const grandTotal = items.reduce((sum, i) => sum + i.total, 0);
   const subtotalBeforeCharges = grandTotal;
   const subtotalWithCourier = grandTotal + (courierCharges || 0);
-  const cashDiscount = computeCashDiscount(subtotalWithCourier, paymentMode);
-  const finalTotal = subtotalWithCourier - cashDiscount;
+  const finalTotal = subtotalWithCourier;
   const changeAmount = amountReceived > finalTotal ? amountReceived - finalTotal : 0;
 
-  return { grandTotal, subtotalBeforeCharges, subtotalWithCourier, cashDiscount, finalTotal, changeAmount };
+  return { grandTotal, subtotalBeforeCharges, subtotalWithCourier, finalTotal, changeAmount };
 }
 
 // row recalc, recomputes total and profit for a single item, always call this after mutating qty or price

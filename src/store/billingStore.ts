@@ -10,7 +10,7 @@ interface BillingState {
   // entry form fields
   entryItem: string;
   entryShade: string;
-  entryQty: number;
+  entryQty: string;
   entryPrice: string;
   entryCost: string;
 
@@ -60,7 +60,7 @@ interface BillingState {
 
   setEntryItem: (v: string) => void;
   setEntryShade: (v: string) => void;
-  setEntryQty: (v: number) => void;
+  setEntryQty: (v: string) => void;
   setEntryPrice: (v: string) => void;
   setEntryCost: (v: string) => void;
   clearEntryForm: () => void;
@@ -118,7 +118,7 @@ const INITIAL_BILL_STATE = {
   items: [] as BillItem[],
   entryItem: "",
   entryShade: "",
-  entryQty: 1,
+  entryQty: "",
   entryPrice: "",
   entryCost: "",
   paymentMode: "GPay" as PaymentMode,
@@ -248,12 +248,12 @@ function actions(set: any, get: any) {
 
     setEntryItem: (entryItem: string) => set({ entryItem }),
     setEntryShade: (entryShade: string) => set({ entryShade }),
-    setEntryQty: (entryQty: number) => set({ entryQty }),
+    setEntryQty: (entryQty: string) => set({ entryQty }),
     setEntryPrice: (entryPrice: string) => set({ entryPrice }),
     setEntryCost: (entryCost: string) => set({ entryCost }),
 
     clearEntryForm: () =>
-      set({ entryItem: "", entryShade: "", entryQty: 1, entryPrice: "", entryCost: "" }),
+      set({ entryItem: "", entryShade: "", entryQty: "", entryPrice: "", entryCost: "" }),
 
     setCustomer: (customer: Customer | null) => {
       if (customer) {
@@ -309,7 +309,7 @@ function actions(set: any, get: any) {
         items: [],
         entryItem: "",
         entryShade: "",
-        entryQty: 1,
+        entryQty: "",
         entryPrice: "",
         entryCost: "",
         // Customer state is intentionally not touched here.

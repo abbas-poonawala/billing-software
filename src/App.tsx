@@ -142,7 +142,11 @@ export default function App() {
   const addItem = async (fromBarcode = false) => {
     const { entryItem, entryShade, entryQty, entryPrice, entryCost, paymentMode } = store;
     if (!entryItem?.trim()) { showToast("Enter item name", "error"); return; }
-    if (entryQty <= 0) { showToast("Quantity must be > 0", "error"); return; }
+    const quantity = Number(entryQty);
+    if (!entryQty.trim() || !Number.isInteger(quantity) || quantity <= 0) {
+      showToast("Enter valid quantity", "error");
+      return;
+    }
     const priceNum = Number(entryPrice);
     if (isNaN(priceNum) || priceNum <= 0) { showToast("Enter valid price (> 0)", "error"); return; }
     const costNum = Number(entryCost) || 0;
@@ -165,7 +169,7 @@ export default function App() {
     const newItem: BillItem = recalcItem({
       item: entryItem,
       shade: finalShade,
-      qty: entryQty,
+      qty: quantity,
       cost: costNum,
       price: priceNum,
       originalPrice: priceNum,
@@ -480,7 +484,7 @@ export default function App() {
               inputMode="numeric"
               min="1"
               value={store.entryQty}
-              onChange={e => store.setEntryQty(Number(e.target.value))}
+              onChange={e => store.setEntryQty(e.target.value.replace(/\D/g, ""))}
               onKeyDown={e => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -491,7 +495,7 @@ export default function App() {
                   return;
                 }
               }}
-              placeholder="Qty"
+              placeholder="Enter quantity..."
               style={{ ...styles.input, maxWidth: 80 }}
             />
 

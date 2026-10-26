@@ -11,6 +11,8 @@
 
 import type { BillItem, PaymentMode } from "../types";
 
+const DEWDROP_ITEM = "dewdrop";
+
 function priceForMode(item: BillItem, paymentMode: PaymentMode, packet: boolean): number {
   const configuredPrice = packet
     ? paymentMode === "Cash" ? item.packetCashPrice : item.packetGPayPrice
@@ -27,7 +29,10 @@ export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): B
       result.push(recalcItem(item));
       continue;
     }
-    const key = `${item.item.trim().toLowerCase()}|${item.shade.trim().toLowerCase()}`;
+    const normalizedItem = item.item.trim().toLowerCase();
+    const key = normalizedItem === DEWDROP_ITEM
+      ? normalizedItem
+      : `${normalizedItem}|${item.shade.trim().toLowerCase()}`;
     groups.set(key, [...(groups.get(key) || []), item]);
   }
 
@@ -36,24 +41,29 @@ export function applyBulkPricing(items: BillItem[], paymentMode: PaymentMode): B
     const totalQty = group.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
     const packetSize = Number(source.packetSize) || 0;
     const packetQty = packetSize > 0 ? Math.floor(totalQty / packetSize) * packetSize : 0;
-    const individualQty = totalQty - packetQty;
-    const individualPrice = priceForMode(source, paymentMode, false);
-    const packetPrice = priceForMode(source, paymentMode, true);
 
-    if (packetQty > 0) {
-      result.push(recalcItem({
-        ...source,
-        id: source.id ? `${source.id}-packet` : undefined,
-        qty: packetQty,
-        price: packetPrice,
-      }));
-    }
-    if (individualQty > 0) {
-      result.push(recalcItem({
-        ...source,
-        qty: individualQty,
-        price: individualPrice,
-      }));
+    let packetRemaining = packetQty;
+    for (const item of group) {
+      const itemQty = Math.max(0, Number(item.qty) || 0);
+      const packetItemQty = Math.min(packetRemaining, itemQty);
+      packetRemaining -= packetItemQty;
+      const individualItemQty = itemQty - packetItemQty;
+
+      if (packetItemQty > 0) {
+        result.push(recalcItem({
+          ...item,
+          id: item.id ? `${item.id}-packet` : undefined,
+          qty: packetItemQty,
+          price: priceForMode(item, paymentMode, true),
+        }));
+      }
+      if (individualItemQty > 0) {
+        result.push(recalcItem({
+          ...item,
+          qty: individualItemQty,
+          price: priceForMode(item, paymentMode, false),
+        }));
+      }
     }
   }
 
